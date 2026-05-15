@@ -1,0 +1,15 @@
+.env
+.env.local
+bin/
+*.exe
+*.test
+*.out
+vendor/
+.idea/
+.vscode/
+*.log
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key

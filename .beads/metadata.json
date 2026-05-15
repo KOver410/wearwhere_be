@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "wearwhere_be",
+  "project_id": "2b12b869-5be5-496d-b5b4-a72695205566"
+}

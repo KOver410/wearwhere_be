@@ -41,7 +41,8 @@ func scanUser(row pgx.Row) (*domain.User, error) {
 
 func (r *UserPG) Create(ctx context.Context, u *domain.User) error {
 	const q = `INSERT INTO users (id, email, phone, password_hash, role, status, name)
-	           VALUES ($1, $2, $3, $4, $5, $6, $7)`
+	           VALUES ($1, $2, $3, $4, $5, $6, $7)
+	           RETURNING created_at, updated_at`
 	if u.ID == uuid.Nil {
 		u.ID = uuid.New()
 	}
@@ -51,8 +52,9 @@ func (r *UserPG) Create(ctx context.Context, u *domain.User) error {
 	if u.Status == "" {
 		u.Status = domain.StatusActive
 	}
-	_, err := r.db.Exec(ctx, q, u.ID, u.Email, u.Phone, u.PasswordHash, string(u.Role), string(u.Status), u.Name)
-	return err
+	return r.db.QueryRow(ctx, q,
+		u.ID, u.Email, u.Phone, u.PasswordHash, string(u.Role), string(u.Status), u.Name,
+	).Scan(&u.CreatedAt, &u.UpdatedAt)
 }
 
 func (r *UserPG) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {

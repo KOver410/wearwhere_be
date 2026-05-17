@@ -22,6 +22,12 @@ import (
 	rediscli "github.com/wearwhere/wearwhere_be/internal/shared/redis"
 	"github.com/wearwhere/wearwhere_be/internal/shared/sms"
 	authvalidator "github.com/wearwhere/wearwhere_be/internal/shared/validator"
+
+	authdomain "github.com/wearwhere/wearwhere_be/internal/auth/domain"
+	brandhandler "github.com/wearwhere/wearwhere_be/internal/brand/handler"
+	brandmw "github.com/wearwhere/wearwhere_be/internal/brand/middleware"
+	brandrepo "github.com/wearwhere/wearwhere_be/internal/brand/repo"
+	brandservice "github.com/wearwhere/wearwhere_be/internal/brand/service"
 )
 
 func main() {
@@ -60,6 +66,8 @@ func main() {
 	sessionRepo := repo.NewSessionPG(pgPool)
 	otpStore := repo.NewOTPRedis(rdb)
 	attemptStore := repo.NewAttemptRedis(rdb)
+	brandRepo := brandrepo.NewBrandPG(pgPool)
+	addressRepo := brandrepo.NewAddressPG(pgPool)
 
 	// ── services ──
 	tokenSvc := service.NewTokenService(jwtIssuer, sessionRepo, cfg.JWT.RefreshTTL)
@@ -68,6 +76,7 @@ func main() {
 	passwordSvc := service.NewPasswordService(userRepo, sessionRepo, otpSvc, authSvc)
 	profileSvc := service.NewProfileService(userRepo, sessionRepo)
 	socialSvc := service.NewSocialService(userRepo, tokenSvc, cfg.OAuth)
+	brandSvc := brandservice.New(brandRepo, addressRepo)
 
 	// ── handlers ──
 	deps := &handler.Deps{
@@ -77,6 +86,10 @@ func main() {
 		Social:    handler.NewSocialHandler(socialSvc),
 		Profile:   handler.NewProfileHandler(profileSvc),
 		JWTIssuer: jwtIssuer,
+	}
+	brandDeps := &brandhandler.Deps{
+		Brand:   brandhandler.NewBrandHandler(brandSvc),
+		Address: brandhandler.NewAddressHandler(brandSvc),
 	}
 
 	// ── router ──
@@ -91,6 +104,13 @@ func main() {
 		middleware.RateLimit(rdb, cfg.Limit.RateLimitPerMin),
 	)
 	handler.Mount(v1, deps)
+
+	brandGroup := v1.Group("/brand/me",
+		middleware.RequireAuth(jwtIssuer),
+		middleware.RequireRole(authdomain.RoleBrand),
+		brandmw.BrandContext(brandRepo),
+	)
+	brandhandler.Mount(brandGroup, brandDeps)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.HTTP.Port,

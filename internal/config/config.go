@@ -11,15 +11,16 @@ import (
 )
 
 type Config struct {
-	App   AppConfig
-	HTTP  HTTPConfig
-	DB    DBConfig
-	Redis RedisConfig
-	JWT   JWTConfig
-	SMTP  SMTPConfig
-	SMS   SMSConfig
-	OAuth OAuthConfig
-	Limit LimitConfig
+	App     AppConfig
+	HTTP    HTTPConfig
+	DB      DBConfig
+	Redis   RedisConfig
+	JWT     JWTConfig
+	SMTP    SMTPConfig
+	SMS     SMSConfig
+	OAuth   OAuthConfig
+	Limit   LimitConfig
+	Storage StorageConfig
 }
 
 type AppConfig struct {
@@ -97,6 +98,16 @@ type LimitConfig struct {
 	RateLimitPerMin     int
 }
 
+type StorageConfig struct {
+	Driver         string
+	LocalDir       string
+	BaseURL        string
+	GCSBucket      string
+	GCSCredentials string
+	MaxFileSize    int64
+	AllowedMIMEs   []string
+}
+
 func Load() (*Config, error) {
 	_ = godotenv.Load() // silently ignore if .env missing (e.g. in prod)
 
@@ -149,6 +160,15 @@ func Load() (*Config, error) {
 			OTPTTLMinutes:       getInt("OTP_TTL_MINUTES", 15),
 			OTPMaxPerHour:       getInt("OTP_MAX_PER_HOUR", 3),
 			RateLimitPerMin:     getInt("RATE_LIMIT_PER_MIN", 100),
+		},
+		Storage: StorageConfig{
+			Driver:         getEnv("STORAGE_DRIVER", "local"),
+			LocalDir:       getEnv("STORAGE_LOCAL_DIR", "./uploads"),
+			BaseURL:        getEnv("STORAGE_BASE_URL", "http://localhost:8080/uploads"),
+			GCSBucket:      getEnv("STORAGE_GCS_BUCKET", ""),
+			GCSCredentials: getEnv("STORAGE_GCS_CREDENTIALS", ""),
+			MaxFileSize:    int64(getInt("STORAGE_MAX_FILE_SIZE", 5*1024*1024)),
+			AllowedMIMEs:   csvOrSingle("STORAGE_ALLOWED_MIMES", ""),
 		},
 	}
 	return cfg, nil

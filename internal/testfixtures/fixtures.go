@@ -159,3 +159,83 @@ func SeedVariant(t *testing.T, db DBTX, productID uuid.UUID, size, color string,
 	}
 	return id
 }
+
+// SeedCustomer is a thin wrapper around SeedUser with role="customer" for readability.
+func SeedCustomer(t *testing.T, db DBTX) SeededUser {
+	t.Helper()
+	return SeedUser(t, db, "customer")
+}
+
+// SeededCartItem is the minimal info callers need after seeding a cart row.
+type SeededCartItem struct {
+	ID            uuid.UUID
+	UserID        uuid.UUID
+	VariantID     uuid.UUID
+	Qty           int
+	PriceSnapshot float64
+}
+
+// SeedCartItem inserts a cart_items row. priceSnapshot must equal the variant price
+// the caller passed to SeedVariant to mimic real add-to-cart flow.
+func SeedCartItem(t *testing.T, db DBTX, userID, variantID uuid.UUID, qty int, priceSnapshot float64) SeededCartItem {
+	t.Helper()
+	id := uuid.New()
+	_, err := db.Exec(context.Background(),
+		`INSERT INTO cart_items (id, user_id, variant_id, qty, price_snapshot, currency_snapshot)
+         VALUES ($1, $2, $3, $4, $5, 'VND')`,
+		id, userID, variantID, qty, priceSnapshot)
+	if err != nil {
+		t.Fatalf("seed cart_item: %v", err)
+	}
+	return SeededCartItem{ID: id, UserID: userID, VariantID: variantID, Qty: qty, PriceSnapshot: priceSnapshot}
+}
+
+// SeedWishlistItem inserts a wishlist_items row.
+func SeedWishlistItem(t *testing.T, db DBTX, userID, productID uuid.UUID) {
+	t.Helper()
+	_, err := db.Exec(context.Background(),
+		`INSERT INTO wishlist_items (user_id, product_id) VALUES ($1, $2)`,
+		userID, productID)
+	if err != nil {
+		t.Fatalf("seed wishlist_item: %v", err)
+	}
+}
+
+// CustomerAddressOpts overrides defaults for SeedCustomerAddress.
+type CustomerAddressOpts struct {
+	Label          string
+	RecipientName  string
+	RecipientPhone string
+	IsDefault      bool
+}
+
+type SeededCustomerAddress struct {
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	IsDefault bool
+}
+
+// SeedCustomerAddress inserts a customer_addresses row with sane Vietnam defaults.
+func SeedCustomerAddress(t *testing.T, db DBTX, userID uuid.UUID, opts CustomerAddressOpts) SeededCustomerAddress {
+	t.Helper()
+	if opts.Label == "" {
+		opts.Label = "Nhà"
+	}
+	if opts.RecipientName == "" {
+		opts.RecipientName = "Người Nhận"
+	}
+	if opts.RecipientPhone == "" {
+		opts.RecipientPhone = "+84901234567"
+	}
+	id := uuid.New()
+	_, err := db.Exec(context.Background(),
+		`INSERT INTO customer_addresses
+           (id, user_id, label, recipient_name, recipient_phone,
+            address_line, ward, district, city, country, is_default)
+         VALUES ($1,$2,$3,$4,$5,'123 Lê Lợi','Bến Nghé','Quận 1','TP HCM','VN',$6)`,
+		id, userID, opts.Label, opts.RecipientName, opts.RecipientPhone, opts.IsDefault)
+	if err != nil {
+		t.Fatalf("seed customer_address: %v", err)
+	}
+	return SeededCustomerAddress{ID: id, UserID: userID, IsDefault: opts.IsDefault}
+}

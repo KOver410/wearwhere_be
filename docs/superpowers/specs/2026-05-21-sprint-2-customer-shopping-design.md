@@ -153,13 +153,13 @@ Indexes:
 
 **Differences vs `brand_addresses`:** no `latitude/longitude/is_public`; adds `recipient_name/recipient_phone/note`; uses `is_default` (customer-friendly term) instead of `is_primary`.
 
-### Migrations (continue from Sprint 1's 000016)
+### Migrations (continue from Sprint 1's last migration `000017_seed_dev_brands`)
 
 | # | File | Purpose |
 |---|---|---|
-| 000017 | `create_cart_items.up.sql` | Table + UNIQUE constraint + (user_id) index |
-| 000018 | `create_wishlist_items.up.sql` | Table + (user_id, added_at DESC) index |
-| 000019 | `create_customer_addresses.up.sql` | Table + 2 indexes |
+| 000018 | `create_cart_items.up.sql` | Table + UNIQUE constraint + (user_id) index |
+| 000019 | `create_wishlist_items.up.sql` | Table + (user_id, added_at DESC) index |
+| 000020 | `create_customer_addresses.up.sql` | Table + 2 indexes |
 
 Each ships with a matching `.down.sql` that drops in reverse order. No new extensions, no new enums, no new triggers.
 
@@ -491,7 +491,7 @@ Runs alongside Sprint 1 scenario in ~5–7 seconds. Catches cross-module wiring 
 
 Driven by dependency direction (fewest dependencies first):
 
-1. **Migrations 000017–000019** — `make migrate-up` runs cleanly on both `wearwhere` and `wearwhere_test` databases.
+1. **Migrations 000018–000020** — `make migrate-up` runs cleanly on both `wearwhere` and `wearwhere_test` databases.
 2. **`internal/customeraddr/`** — standalone, no `product` dependency. Onboarding-friendly first module.
 3. **`internal/wishlist/`** — depends only on `product.Repo.FindByID` for existence check.
 4. **`internal/cart/`** — most complex (UPSERT, snapshot, unavailable join, stock check).

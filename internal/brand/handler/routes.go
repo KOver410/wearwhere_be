@@ -24,3 +24,9 @@ func Mount(rg *gin.RouterGroup, d *Deps) {
 		addr.DELETE(":id", d.Address.Delete)
 	}
 }
+
+// MountBrandsPublic registers public read-only brand routes (no auth required).
+func MountBrandsPublic(rg *gin.RouterGroup, h *BrandsPublicHandler) {
+	rg.GET("/brands", h.List)
+	rg.GET("/brands/:slug", h.Detail)
+}

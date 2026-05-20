@@ -105,6 +105,8 @@ func main() {
 		categoryRepo, styleTagRepo,
 		storageBackend, cfg.Storage.AllowedMIMEs, cfg.Storage.MaxFileSize,
 	)
+	catalogRepo := productrepo.NewCatalogPG(pgPool)
+	catalogSvc := productservice.NewCatalog(catalogRepo, productRepo)
 
 	// ── handlers ──
 	deps := &handler.Deps{
@@ -121,6 +123,8 @@ func main() {
 	}
 
 	brandProductHandler := producthandler.NewBrandProductHandler(productSvc)
+	catalogHandler := producthandler.NewCatalogHandler(catalogSvc, categoryRepo, styleTagRepo)
+	brandsPublicHandler := brandhandler.NewBrandsPublicHandler(brandSvc)
 
 	// ── router ──
 	r := gin.New()
@@ -155,6 +159,9 @@ func main() {
 	)
 	brandhandler.Mount(brandGroup, brandDeps)
 	producthandler.MountBrandProducts(brandGroup, brandProductHandler)
+
+	producthandler.MountCatalog(v1, catalogHandler)
+	brandhandler.MountBrandsPublic(v1, brandsPublicHandler)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.HTTP.Port,

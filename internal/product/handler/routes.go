@@ -22,3 +22,12 @@ func MountBrandProducts(rg *gin.RouterGroup, h *BrandProductHandler) {
 		p.DELETE(":id/images/:image_id", h.DeleteImage)
 	}
 }
+
+// MountCatalog mounts public read-only catalog routes (no auth required).
+func MountCatalog(rg *gin.RouterGroup, h *CatalogHandler) {
+	rg.GET("/products", h.List)
+	rg.GET("/products/by-id/:id", h.DetailByID)
+	rg.GET("/brands/:brand_slug/products/:product_slug", h.Detail)
+	rg.GET("/categories", h.ListCategories)
+	rg.GET("/style-tags", h.ListStyleTags)
+}

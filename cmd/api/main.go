@@ -28,6 +28,10 @@ import (
 	brandmw "github.com/wearwhere/wearwhere_be/internal/brand/middleware"
 	brandrepo "github.com/wearwhere/wearwhere_be/internal/brand/repo"
 	brandservice "github.com/wearwhere/wearwhere_be/internal/brand/service"
+	producthandler "github.com/wearwhere/wearwhere_be/internal/product/handler"
+	productrepo "github.com/wearwhere/wearwhere_be/internal/product/repo"
+	productservice "github.com/wearwhere/wearwhere_be/internal/product/service"
+	"github.com/wearwhere/wearwhere_be/internal/shared/storage"
 )
 
 func main() {
@@ -68,6 +72,25 @@ func main() {
 	attemptStore := repo.NewAttemptRedis(rdb)
 	brandRepo := brandrepo.NewBrandPG(pgPool)
 	addressRepo := brandrepo.NewAddressPG(pgPool)
+	productRepo := productrepo.NewProductPG(pgPool)
+	variantRepo := productrepo.NewVariantPG(pgPool)
+	imageRepo := productrepo.NewImagePG(pgPool)
+	categoryRepo := productrepo.NewCategoryPG(pgPool)
+	styleTagRepo := productrepo.NewStyleTagPG(pgPool)
+
+	// ── storage ──
+	storageBackend, err := storage.New(storage.Config{
+		Driver:         cfg.Storage.Driver,
+		LocalDir:       cfg.Storage.LocalDir,
+		BaseURL:        cfg.Storage.BaseURL,
+		GCSBucket:      cfg.Storage.GCSBucket,
+		GCSCredentials: cfg.Storage.GCSCredentials,
+		MaxFileSize:    cfg.Storage.MaxFileSize,
+		AllowedMIMEs:   cfg.Storage.AllowedMIMEs,
+	})
+	if err != nil {
+		log.Fatalf("storage: %v", err)
+	}
 
 	// ── services ──
 	tokenSvc := service.NewTokenService(jwtIssuer, sessionRepo, cfg.JWT.RefreshTTL)
@@ -77,6 +100,11 @@ func main() {
 	profileSvc := service.NewProfileService(userRepo, sessionRepo)
 	socialSvc := service.NewSocialService(userRepo, tokenSvc, cfg.OAuth)
 	brandSvc := brandservice.New(brandRepo, addressRepo)
+	productSvc := productservice.New(
+		productRepo, variantRepo, imageRepo,
+		categoryRepo, styleTagRepo,
+		storageBackend, cfg.Storage.AllowedMIMEs, cfg.Storage.MaxFileSize,
+	)
 
 	// ── handlers ──
 	deps := &handler.Deps{
@@ -92,12 +120,18 @@ func main() {
 		Address: brandhandler.NewAddressHandler(brandSvc),
 	}
 
+	brandProductHandler := producthandler.NewBrandProductHandler(productSvc)
+
 	// ── router ──
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(gin.Logger())
 
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
+
+	if cfg.Storage.Driver == "local" || cfg.Storage.Driver == "" {
+		r.Static("/uploads", cfg.Storage.LocalDir)
+	}
 
 	v1 := r.Group("/api/v1",
 		middleware.OptionalAuth(jwtIssuer),
@@ -111,6 +145,7 @@ func main() {
 		brandmw.BrandContext(brandRepo),
 	)
 	brandhandler.Mount(brandGroup, brandDeps)
+	producthandler.MountBrandProducts(brandGroup, brandProductHandler)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.HTTP.Port,

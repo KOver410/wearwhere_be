@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -14,20 +15,29 @@ import (
 )
 
 type fakeCatalogRepo struct {
-	items       []*domain.CatalogItem
-	total       int
-	err         error
-	suggestions []string
+	items         []*domain.CatalogItem
+	total         int
+	err           error
+	suggestions   []string
+	detailErr     error
+	detailProduct *domain.Product
+	detailByIDErr error
 }
 
 func (f *fakeCatalogRepo) List(ctx context.Context, q *domain.ListProductsQuery) ([]*domain.CatalogItem, int, error) {
 	return f.items, f.total, f.err
 }
 func (f *fakeCatalogRepo) Detail(ctx context.Context, bs, ps string) (*domain.Product, *domain.Category, []*domain.Variant, []*domain.Image, []*domain.StyleTag, error) {
-	return nil, nil, nil, nil, nil, repo.ErrNotFound
+	if f.detailErr != nil {
+		return nil, nil, nil, nil, nil, f.detailErr
+	}
+	return f.detailProduct, nil, nil, nil, nil, nil
 }
 func (f *fakeCatalogRepo) DetailByID(ctx context.Context, id uuid.UUID) (*domain.Product, *domain.Category, []*domain.Variant, []*domain.Image, []*domain.StyleTag, error) {
-	return nil, nil, nil, nil, nil, repo.ErrNotFound
+	if f.detailByIDErr != nil {
+		return nil, nil, nil, nil, nil, f.detailByIDErr
+	}
+	return f.detailProduct, nil, nil, nil, nil, nil
 }
 func (f *fakeCatalogRepo) Suggestions(ctx context.Context, q string, limit int) ([]string, error) {
 	return f.suggestions, nil
@@ -86,4 +96,33 @@ func TestCatalog_List_NoQuery_NoSuggestions(t *testing.T) {
 		Q: "", Page: 1, Limit: 10,
 	})
 	require.Nil(t, suggestions)
+}
+
+func TestCatalog_Detail_NotFound_ReturnsErrProductNotFound(t *testing.T) {
+	cr := &fakeCatalogRepo{detailErr: repo.ErrNotFound}
+	svc := NewCatalog(cr, &fakeProductRepoNoOp{})
+	_, _, _, _, _, err := svc.Detail(context.Background(), "brand-slug", "product-slug")
+	require.True(t, errors.Is(err, domain.ErrProductNotFound), "expected ErrProductNotFound, got %v", err)
+}
+
+func TestCatalog_DetailByID_NotFound_ReturnsErrProductNotFound(t *testing.T) {
+	cr := &fakeCatalogRepo{detailByIDErr: repo.ErrNotFound}
+	svc := NewCatalog(cr, &fakeProductRepoNoOp{})
+	_, _, _, _, _, err := svc.DetailByID(context.Background(), uuid.New())
+	require.True(t, errors.Is(err, domain.ErrProductNotFound), "expected ErrProductNotFound, got %v", err)
+}
+
+func TestCatalog_Detail_FiresViewCountIncrement(t *testing.T) {
+	prod := &domain.Product{ID: uuid.New()}
+	cr := &fakeCatalogRepo{detailProduct: prod}
+	fp := &fakeProductRepoNoOp{}
+	svc := NewCatalog(cr, fp)
+	_, _, _, _, _, err := svc.Detail(context.Background(), "brand-slug", "product-slug")
+	require.NoError(t, err)
+	// Poll until the goroutine increments the counter or we time out.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && atomic.LoadInt32(&fp.viewCount) == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	require.Equal(t, int32(1), atomic.LoadInt32(&fp.viewCount), "view-count goroutine did not fire within 2 s")
 }

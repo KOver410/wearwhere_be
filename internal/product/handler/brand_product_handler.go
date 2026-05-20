@@ -264,6 +264,9 @@ func paginInt(c *gin.Context, key string, def, min, max int) int {
 
 func paginationEnvelope(page, limit, total int) gin.H {
 	totalPages := (total + limit - 1) / limit
+	if totalPages == 0 {
+		totalPages = 1
+	}
 	return gin.H{
 		"page": page, "limit": limit, "total": total,
 		"total_pages": totalPages, "has_more": page < totalPages,

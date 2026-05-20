@@ -75,7 +75,7 @@ func (h *BrandsPublicHandler) List(c *gin.Context) {
 }
 
 func (h *BrandsPublicHandler) Detail(c *gin.Context) {
-	slug := c.Param("slug")
+	slug := c.Param("brand_slug")
 	b, err := h.svc.GetBySlug(c.Request.Context(), slug)
 	if err != nil {
 		httpx.ErrorFromApp(c, err)

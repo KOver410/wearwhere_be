@@ -71,16 +71,26 @@ func (s *Service) CreateProduct(ctx context.Context, brandID uuid.UUID, req *dom
 		if base == "" {
 			base = "product"
 		}
-		theSlug = base
-		for i := 2; i < 100; i++ {
-			exists, err := s.products.SlugExists(ctx, brandID, theSlug)
+		found := false
+		for i := 1; i < 100; i++ {
+			var candidate string
+			if i == 1 {
+				candidate = base
+			} else {
+				candidate = fmt.Sprintf("%s-%d", base, i)
+			}
+			exists, err := s.products.SlugExists(ctx, brandID, candidate)
 			if err != nil {
 				return nil, err
 			}
 			if !exists {
+				theSlug = candidate
+				found = true
 				break
 			}
-			theSlug = fmt.Sprintf("%s-%d", base, i)
+		}
+		if !found {
+			return nil, domain.ErrSlugTaken
 		}
 	}
 
@@ -142,9 +152,16 @@ func (s *Service) UpdateProduct(ctx context.Context, id, brandID uuid.UUID, req 
 			return err
 		}
 		if exists {
-			// Allow same slug on this product itself
-			p, err := s.products.FindByID(ctx, id)
-			if err != nil || p.Slug != *req.Slug {
+			// Allow same slug on this product itself (user re-submitting unchanged slug).
+			p, findErr := s.products.FindByID(ctx, id)
+			if findErr != nil {
+				if errors.Is(findErr, repo.ErrNotFound) {
+					// Race: product was deleted mid-update.
+					return domain.ErrProductNotFound
+				}
+				return findErr
+			}
+			if p.Slug != *req.Slug {
 				return domain.ErrSlugTaken
 			}
 		}

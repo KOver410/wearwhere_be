@@ -127,6 +127,15 @@ func main() {
 	r.Use(gin.Recovery())
 	r.Use(gin.Logger())
 
+	// Limit multipart form memory so large uploads spill to temp files rather
+	// than being held entirely in RAM. Per-file size enforcement stays in the
+	// service layer.
+	multipartLimit := cfg.Storage.MaxFileSize
+	if multipartLimit <= 0 {
+		multipartLimit = 4 << 20 // 4 MiB default
+	}
+	r.MaxMultipartMemory = multipartLimit
+
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
 
 	if cfg.Storage.Driver == "local" || cfg.Storage.Driver == "" {

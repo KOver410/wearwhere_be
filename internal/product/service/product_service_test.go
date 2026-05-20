@@ -186,3 +186,29 @@ func TestService_GetOwnProduct_IDORProtection(t *testing.T) {
 	_, err = svc.GetOwnProduct(context.Background(), pid, otherBrand)
 	require.ErrorIs(t, err, domain.ErrProductNotFound)
 }
+
+// alwaysFullRepo is a fakeProductRepo whose SlugExists always returns true,
+// simulating total slug-namespace exhaustion.
+type alwaysFullRepo struct {
+	fakeProductRepo
+	createCalled bool
+}
+
+func (f *alwaysFullRepo) SlugExists(_ context.Context, _ uuid.UUID, _ string) (bool, error) {
+	return true, nil
+}
+func (f *alwaysFullRepo) Create(_ context.Context, _ uuid.UUID, _ string, _ *domain.CreateProductRequest) (*domain.Product, error) {
+	f.createCalled = true
+	return &domain.Product{}, nil
+}
+
+func TestService_SlugExhaustion_ReturnsErrSlugTaken(t *testing.T) {
+	fr := &alwaysFullRepo{}
+	svc := New(fr, nil, nil, nil, nil, nil, nil, 0)
+
+	_, err := svc.CreateProduct(context.Background(), uuid.New(), &domain.CreateProductRequest{
+		Name: "Packed Product", CategoryID: uuid.New().String(),
+	})
+	require.ErrorIs(t, err, domain.ErrSlugTaken, "exhausted slug space must return ErrSlugTaken")
+	require.False(t, fr.createCalled, "Create must NOT be called when slug space is exhausted")
+}

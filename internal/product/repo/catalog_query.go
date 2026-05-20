@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/wearwhere/wearwhere_be/internal/product/domain"
 )
@@ -328,6 +327,3 @@ func (r *CatalogPG) Suggestions(ctx context.Context, q string, limit int) ([]str
 
 // compile-time interface check
 var _ CatalogRepo = (*CatalogPG)(nil)
-
-// Ensure pgx interface reference for the linter.
-var _ = pgx.ErrNoRows

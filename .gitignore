@@ -14,3 +14,4 @@ vendor/
 .dolt/
 *.db
 .beads-credential-key
+.gotmp/

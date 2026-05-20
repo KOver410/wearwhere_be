@@ -42,6 +42,10 @@ func TestCatalog_List_NoFilters(t *testing.T) {
 
 func TestCatalog_List_SearchByName(t *testing.T) {
 	tx := testfixtures.BeginTx(t, testPool)
+	// Brand-name suffix dilutes search_text trigrams; lower the threshold so
+	// short queries like "ao thun" reliably match "Áo Thun Trắng …  brand brand-<hex>".
+	_, err := tx.Exec(context.Background(), "SET LOCAL pg_trgm.similarity_threshold = 0.1")
+	require.NoError(t, err)
 	sb := testfixtures.SeedBrand(t, tx, uuid.Nil)
 	sc := testfixtures.SeedCategory(t, tx)
 	mkActiveProduct(t, tx, sb.ID, sc.ID, "Áo Thun Trắng", 250000, "M", "White")

@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	brandrepo "github.com/wearwhere/wearwhere_be/internal/brand/repo"
 	"github.com/wearwhere/wearwhere_be/internal/product/domain"
 	productrepo "github.com/wearwhere/wearwhere_be/internal/product/repo"
 	"github.com/wearwhere/wearwhere_be/internal/product/service"
@@ -16,14 +18,16 @@ type CatalogHandler struct {
 	svc       *service.CatalogService
 	categoryR productrepo.CategoryRepo
 	styleR    productrepo.StyleTagRepo
+	brandR    brandrepo.BrandRepo
 }
 
 func NewCatalogHandler(
 	svc *service.CatalogService,
 	cr productrepo.CategoryRepo,
 	sr productrepo.StyleTagRepo,
+	br brandrepo.BrandRepo,
 ) *CatalogHandler {
-	return &CatalogHandler{svc: svc, categoryR: cr, styleR: sr}
+	return &CatalogHandler{svc: svc, categoryR: cr, styleR: sr, brandR: br}
 }
 
 func (h *CatalogHandler) List(c *gin.Context) {
@@ -97,11 +101,18 @@ func (h *CatalogHandler) respondDetail(c *gin.Context, fetch func() (*domain.Pro
 			ID: t.ID.String(), Slug: t.Slug, Name: t.Name,
 		})
 	}
+	brandRef := &domain.BrandRef{ID: p.BrandID.String()}
+	if b, err := h.brandR.FindByID(c.Request.Context(), p.BrandID); err == nil {
+		brandRef.Slug = b.Slug
+		brandRef.Name = b.Name
+	} else {
+		log.Printf("catalog: brand lookup for %s failed: %v", p.BrandID, err)
+	}
 	out := domain.ProductDetail{
 		ID: p.ID.String(), Slug: p.Slug, Name: p.Name,
 		Description: p.Description, Status: string(p.Status),
 		Currency: p.Currency,
-		Brand:    &domain.BrandRef{ID: p.BrandID.String()},
+		Brand:    brandRef,
 		Category: &domain.CategoryRef{
 			ID: cat.ID.String(), Slug: cat.Slug, Name: cat.Name,
 		},

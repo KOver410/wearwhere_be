@@ -123,7 +123,7 @@ func main() {
 	}
 
 	brandProductHandler := producthandler.NewBrandProductHandler(productSvc)
-	catalogHandler := producthandler.NewCatalogHandler(catalogSvc, categoryRepo, styleTagRepo)
+	catalogHandler := producthandler.NewCatalogHandler(catalogSvc, categoryRepo, styleTagRepo, brandRepo)
 	brandsPublicHandler := brandhandler.NewBrandsPublicHandler(brandSvc)
 
 	// ── router ──

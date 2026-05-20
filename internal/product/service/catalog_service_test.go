@@ -66,7 +66,9 @@ func (f *fakeProductRepoNoOp) FindByBrandSlug(ctx context.Context, bs, ps string
 func (f *fakeProductRepoNoOp) Update(ctx context.Context, id, brandID uuid.UUID, r *domain.UpdateProductRequest) error {
 	return nil
 }
-func (f *fakeProductRepoNoOp) SoftDelete(ctx context.Context, id, brandID uuid.UUID) error { return nil }
+func (f *fakeProductRepoNoOp) SoftDelete(ctx context.Context, id, brandID uuid.UUID) error {
+	return nil
+}
 func (f *fakeProductRepoNoOp) ListByBrand(ctx context.Context, brandID uuid.UUID, l, o int) ([]*domain.Product, int, error) {
 	return nil, 0, nil
 }

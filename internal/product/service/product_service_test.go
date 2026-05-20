@@ -156,7 +156,7 @@ func TestService_UpdateProduct_BlocksPublishWithNoImages(t *testing.T) {
 		},
 	}
 	vr := &fakeVariantRepo{variants: []*domain.Variant{{ID: uuid.New()}}} // has variants
-	ir := &fakeImageRepo{images: nil}                                      // no images
+	ir := &fakeImageRepo{images: nil}                                     // no images
 
 	svc := New(pr, vr, ir, nil, nil, nil, nil, 0)
 	status := string(domain.ProductStatusActive)

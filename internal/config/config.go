@@ -69,8 +69,8 @@ type SMSConfig struct {
 // OAuthConfig — each provider may accept multiple Client IDs because each
 // frontend platform (web / iOS / Android) gets a different OAuth audience.
 //
-//   Google:  web ID (web + Android via serverClientId) + iOS ID
-//   Apple:   Services ID (web/Android) + App ID Bundle (iOS native sign-in)
+//	Google:  web ID (web + Android via serverClientId) + iOS ID
+//	Apple:   Services ID (web/Android) + App ID Bundle (iOS native sign-in)
 type OAuthConfig struct {
 	GoogleClientIDs []string
 	AppleClientIDs  []string

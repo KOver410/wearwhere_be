@@ -26,9 +26,15 @@ func (f *fakeRepo) FindByOwnerUserID(ctx context.Context, id uuid.UUID) (*domain
 }
 
 // other methods unused
-func (f *fakeRepo) FindByID(ctx context.Context, id uuid.UUID) (*domain.Brand, error)        { return nil, nil }
-func (f *fakeRepo) FindBySlug(ctx context.Context, slug string) (*domain.Brand, error)        { return nil, nil }
-func (f *fakeRepo) Update(ctx context.Context, id uuid.UUID, r *domain.UpdateBrandRequest) error { return nil }
+func (f *fakeRepo) FindByID(ctx context.Context, id uuid.UUID) (*domain.Brand, error) {
+	return nil, nil
+}
+func (f *fakeRepo) FindBySlug(ctx context.Context, slug string) (*domain.Brand, error) {
+	return nil, nil
+}
+func (f *fakeRepo) Update(ctx context.Context, id uuid.UUID, r *domain.UpdateBrandRequest) error {
+	return nil
+}
 func (f *fakeRepo) List(ctx context.Context, q, sort string, l, o int) ([]*domain.Brand, int, error) {
 	return nil, 0, nil
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	authdomain "github.com/wearwhere/wearwhere_be/internal/auth/domain"
+	authhandler "github.com/wearwhere/wearwhere_be/internal/auth/handler"
 	authmw "github.com/wearwhere/wearwhere_be/internal/auth/middleware"
 	authrepo "github.com/wearwhere/wearwhere_be/internal/auth/repo"
 	authservice "github.com/wearwhere/wearwhere_be/internal/auth/service"
@@ -31,7 +32,6 @@ import (
 	producthandler "github.com/wearwhere/wearwhere_be/internal/product/handler"
 	productrepo "github.com/wearwhere/wearwhere_be/internal/product/repo"
 	productservice "github.com/wearwhere/wearwhere_be/internal/product/service"
-	authhandler "github.com/wearwhere/wearwhere_be/internal/auth/handler"
 	jwtsvc "github.com/wearwhere/wearwhere_be/internal/shared/jwt"
 	"github.com/wearwhere/wearwhere_be/internal/shared/storage"
 	authvalidator "github.com/wearwhere/wearwhere_be/internal/shared/validator"

@@ -6,8 +6,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/wearwhere/wearwhere_be/internal/auth/domain"
-	"github.com/wearwhere/wearwhere_be/pkg/httpx"
 	jwtsvc "github.com/wearwhere/wearwhere_be/internal/shared/jwt"
+	"github.com/wearwhere/wearwhere_be/pkg/httpx"
 )
 
 // RequireAuth parses the Bearer token, verifies it, and attaches the claims

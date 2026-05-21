@@ -28,6 +28,9 @@ import (
 	brandmw "github.com/wearwhere/wearwhere_be/internal/brand/middleware"
 	brandrepo "github.com/wearwhere/wearwhere_be/internal/brand/repo"
 	brandservice "github.com/wearwhere/wearwhere_be/internal/brand/service"
+	customeraddrhandler "github.com/wearwhere/wearwhere_be/internal/customeraddr/handler"
+	customeraddrrepo "github.com/wearwhere/wearwhere_be/internal/customeraddr/repo"
+	customeraddrservice "github.com/wearwhere/wearwhere_be/internal/customeraddr/service"
 	producthandler "github.com/wearwhere/wearwhere_be/internal/product/handler"
 	productrepo "github.com/wearwhere/wearwhere_be/internal/product/repo"
 	productservice "github.com/wearwhere/wearwhere_be/internal/product/service"
@@ -77,6 +80,7 @@ func main() {
 	imageRepo := productrepo.NewImagePG(pgPool)
 	categoryRepo := productrepo.NewCategoryPG(pgPool)
 	styleTagRepo := productrepo.NewStyleTagPG(pgPool)
+	customerAddrRepo := customeraddrrepo.NewAddressPG(pgPool)
 
 	// ── storage ──
 	storageBackend, err := storage.New(storage.Config{
@@ -107,6 +111,7 @@ func main() {
 	)
 	catalogRepo := productrepo.NewCatalogPG(pgPool)
 	catalogSvc := productservice.NewCatalog(catalogRepo, productRepo)
+	customerAddrSvc := customeraddrservice.New(customerAddrRepo)
 
 	// ── handlers ──
 	deps := &handler.Deps{
@@ -125,6 +130,7 @@ func main() {
 	brandProductHandler := producthandler.NewBrandProductHandler(productSvc)
 	catalogHandler := producthandler.NewCatalogHandler(catalogSvc, categoryRepo, styleTagRepo, brandRepo)
 	brandsPublicHandler := brandhandler.NewBrandsPublicHandler(brandSvc)
+	customerAddrHandler := customeraddrhandler.New(customerAddrSvc)
 
 	// ── router ──
 	r := gin.New()
@@ -162,6 +168,12 @@ func main() {
 
 	producthandler.MountCatalog(v1, catalogHandler)
 	brandhandler.MountBrandsPublic(v1, brandsPublicHandler)
+
+	customerGroup := v1.Group("/me",
+		middleware.RequireAuth(jwtIssuer),
+		middleware.RequireRole(authdomain.RoleCustomer),
+	)
+	customeraddrhandler.Mount(customerGroup, customerAddrHandler)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.HTTP.Port,

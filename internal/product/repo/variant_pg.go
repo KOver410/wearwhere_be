@@ -139,3 +139,37 @@ func (r *VariantPG) SoftDelete(ctx context.Context, id, productID uuid.UUID) err
 	}
 	return nil
 }
+
+func (r *VariantPG) FindForPurchase(ctx context.Context, variantID uuid.UUID) (*domain.Variant, *domain.Product, error) {
+	var v domain.Variant
+	var p domain.Product
+	err := r.db.QueryRow(ctx, `
+      SELECT
+        v.id, v.product_id, v.sku, v.size, v.color, v.color_hex,
+        v.price, v.stock_qty, v.is_active, v.image_id,
+        v.created_at, v.updated_at, v.deleted_at,
+        p.id, p.brand_id, p.category_id, p.slug, p.name, p.description,
+        p.status, p.currency, p.sold_count, p.view_count,
+        p.created_at, p.updated_at, p.deleted_at
+      FROM product_variants v
+      JOIN products p ON p.id = v.product_id
+      WHERE v.id = $1
+        AND v.deleted_at IS NULL AND v.is_active = TRUE
+        AND p.deleted_at IS NULL AND p.status = 'active'`,
+		variantID,
+	).Scan(
+		&v.ID, &v.ProductID, &v.SKU, &v.Size, &v.Color, &v.ColorHex,
+		&v.Price, &v.StockQty, &v.IsActive, &v.ImageID,
+		&v.CreatedAt, &v.UpdatedAt, &v.DeletedAt,
+		&p.ID, &p.BrandID, &p.CategoryID, &p.Slug, &p.Name, &p.Description,
+		&p.Status, &p.Currency, &p.SoldCount, &p.ViewCount,
+		&p.CreatedAt, &p.UpdatedAt, &p.DeletedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, ErrNotFound
+		}
+		return nil, nil, err
+	}
+	return &v, &p, nil
+}

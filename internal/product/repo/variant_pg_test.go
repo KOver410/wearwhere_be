@@ -192,3 +192,31 @@ func TestVariantPG_ListByProduct_ExcludesSoftDeleted(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 }
+
+func TestVariantPG_FindForPurchase_RejectsInactiveProduct(t *testing.T) {
+	tx := testfixtures.BeginTx(t, testPool)
+	brand := testfixtures.SeedBrand(t, tx, uuid.Nil)
+	cat := testfixtures.SeedCategory(t, tx)
+	draft := testfixtures.SeedProduct(t, tx, brand.ID, cat.ID, "draft")
+	vid := testfixtures.SeedVariant(t, tx, draft.ID, "M", "Black", 199000, 5)
+	r := NewVariantPG(tx)
+
+	_, _, err := r.FindForPurchase(context.Background(), vid)
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestVariantPG_FindForPurchase_HappyPath(t *testing.T) {
+	tx := testfixtures.BeginTx(t, testPool)
+	brand := testfixtures.SeedBrand(t, tx, uuid.Nil)
+	cat := testfixtures.SeedCategory(t, tx)
+	prod := testfixtures.SeedProduct(t, tx, brand.ID, cat.ID, "active")
+	vid := testfixtures.SeedVariant(t, tx, prod.ID, "M", "Black", 199000, 10)
+	r := NewVariantPG(tx)
+
+	v, p, err := r.FindForPurchase(context.Background(), vid)
+	require.NoError(t, err)
+	require.Equal(t, vid, v.ID)
+	require.Equal(t, prod.ID, p.ID)
+	require.Equal(t, 199000.0, v.Price)
+	require.Equal(t, 10, v.StockQty)
+}

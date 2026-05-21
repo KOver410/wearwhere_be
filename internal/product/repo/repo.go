@@ -44,6 +44,10 @@ type VariantRepo interface {
 	ListByProduct(ctx context.Context, productID uuid.UUID, onlyActive bool) ([]*domain.Variant, error)
 	Update(ctx context.Context, id, productID uuid.UUID, req *domain.UpdateVariantRequest) (*domain.Variant, error)
 	SoftDelete(ctx context.Context, id, productID uuid.UUID) error
+	// FindForPurchase returns the variant and its parent product only if both are
+	// active, in-stock-capable, and not soft-deleted. Returns ErrNotFound if the
+	// variant is missing, inactive, soft-deleted, or its product is not active.
+	FindForPurchase(ctx context.Context, variantID uuid.UUID) (*domain.Variant, *domain.Product, error)
 }
 
 type ImageRepo interface {

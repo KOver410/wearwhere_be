@@ -31,6 +31,9 @@ import (
 	customeraddrhandler "github.com/wearwhere/wearwhere_be/internal/customeraddr/handler"
 	customeraddrrepo "github.com/wearwhere/wearwhere_be/internal/customeraddr/repo"
 	customeraddrservice "github.com/wearwhere/wearwhere_be/internal/customeraddr/service"
+	wishlisthandler "github.com/wearwhere/wearwhere_be/internal/wishlist/handler"
+	wishlistrepo "github.com/wearwhere/wearwhere_be/internal/wishlist/repo"
+	wishlistservice "github.com/wearwhere/wearwhere_be/internal/wishlist/service"
 	producthandler "github.com/wearwhere/wearwhere_be/internal/product/handler"
 	productrepo "github.com/wearwhere/wearwhere_be/internal/product/repo"
 	productservice "github.com/wearwhere/wearwhere_be/internal/product/service"
@@ -81,6 +84,7 @@ func main() {
 	categoryRepo := productrepo.NewCategoryPG(pgPool)
 	styleTagRepo := productrepo.NewStyleTagPG(pgPool)
 	customerAddrRepo := customeraddrrepo.NewAddressPG(pgPool)
+	wishlistRepo := wishlistrepo.NewWishlistPG(pgPool)
 
 	// ── storage ──
 	storageBackend, err := storage.New(storage.Config{
@@ -112,6 +116,7 @@ func main() {
 	catalogRepo := productrepo.NewCatalogPG(pgPool)
 	catalogSvc := productservice.NewCatalog(catalogRepo, productRepo)
 	customerAddrSvc := customeraddrservice.New(customerAddrRepo)
+	wishlistSvc := wishlistservice.New(wishlistRepo, productRepo)
 
 	// ── handlers ──
 	deps := &handler.Deps{
@@ -131,6 +136,7 @@ func main() {
 	catalogHandler := producthandler.NewCatalogHandler(catalogSvc, categoryRepo, styleTagRepo, brandRepo)
 	brandsPublicHandler := brandhandler.NewBrandsPublicHandler(brandSvc)
 	customerAddrHandler := customeraddrhandler.New(customerAddrSvc)
+	wishlistHandler := wishlisthandler.New(wishlistSvc)
 
 	// ── router ──
 	r := gin.New()
@@ -174,6 +180,7 @@ func main() {
 		middleware.RequireRole(authdomain.RoleCustomer),
 	)
 	customeraddrhandler.Mount(customerGroup, customerAddrHandler)
+	wishlisthandler.Mount(customerGroup, wishlistHandler)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.HTTP.Port,

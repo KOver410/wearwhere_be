@@ -10,17 +10,17 @@ type UpdateCartItemRequest struct {
 }
 
 type CartItemResponse struct {
-	ID               string  `json:"id"`
-	Qty              int     `json:"qty"`
-	PriceSnapshot    string  `json:"price_snapshot"`
-	CurrentPrice     string  `json:"current_price"`
-	PriceChanged     bool    `json:"price_changed"`
-	SubtotalSnapshot string  `json:"subtotal_snapshot"`
-	SubtotalCurrent  string  `json:"subtotal_current"`
-	Currency         string  `json:"currency"`
-	Unavailable      bool    `json:"unavailable"`
+	ID                string  `json:"id"`
+	Qty               int     `json:"qty"`
+	PriceSnapshot     string  `json:"price_snapshot"`
+	CurrentPrice      string  `json:"current_price"`
+	PriceChanged      bool    `json:"price_changed"`
+	SubtotalSnapshot  string  `json:"subtotal_snapshot"`
+	SubtotalCurrent   string  `json:"subtotal_current"`
+	Currency          string  `json:"currency"`
+	Unavailable       bool    `json:"unavailable"`
 	UnavailableReason *string `json:"unavailable_reason,omitempty"`
-	AddedAt          string  `json:"added_at"`
+	AddedAt           string  `json:"added_at"`
 
 	Variant struct {
 		ID       string  `json:"id"`

@@ -65,6 +65,15 @@ func (f *fakeVariant) SoftDelete(_ context.Context, _, _ uuid.UUID) error { retu
 func (f *fakeVariant) FindForPurchase(_ context.Context, _ uuid.UUID) (*productdomain.Variant, *productdomain.Product, error) {
 	return f.v, f.p, f.err
 }
+func (f *fakeVariant) Reserve(_ context.Context, _ productrepo.DBTX, _ uuid.UUID, _ int) error {
+	return nil
+}
+func (f *fakeVariant) Commit(_ context.Context, _ productrepo.DBTX, _ uuid.UUID, _ int) error {
+	return nil
+}
+func (f *fakeVariant) Release(_ context.Context, _ productrepo.DBTX, _ uuid.UUID, _ int) error {
+	return nil
+}
 
 func TestAdd_QtyExceedsMax(t *testing.T) {
 	s := service.New(&fakeCart{}, &fakeVariant{})

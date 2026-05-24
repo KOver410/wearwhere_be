@@ -90,6 +90,15 @@ func (f *fakeVariantRepo) SoftDelete(ctx context.Context, id, productID uuid.UUI
 func (f *fakeVariantRepo) FindForPurchase(_ context.Context, _ uuid.UUID) (*domain.Variant, *domain.Product, error) {
 	return nil, nil, repo.ErrNotFound
 }
+func (f *fakeVariantRepo) Reserve(_ context.Context, _ repo.DBTX, _ uuid.UUID, _ int) error {
+	return nil
+}
+func (f *fakeVariantRepo) Commit(_ context.Context, _ repo.DBTX, _ uuid.UUID, _ int) error {
+	return nil
+}
+func (f *fakeVariantRepo) Release(_ context.Context, _ repo.DBTX, _ uuid.UUID, _ int) error {
+	return nil
+}
 
 // fakeImageRepo implements repo.ImageRepo with no-op methods.
 type fakeImageRepo struct {

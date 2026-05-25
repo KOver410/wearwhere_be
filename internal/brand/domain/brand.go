@@ -23,9 +23,10 @@ type Brand struct {
 	LogoURL     *string
 	BannerURL   *string
 	WebsiteURL  *string
-	Status      BrandStatus
-	VerifiedAt  *time.Time
-	CreatedAt   time.Time
+	Status             BrandStatus
+	ShippingFlatFeeVND int64      `json:"shipping_flat_fee_vnd"`
+	VerifiedAt         *time.Time
+	CreatedAt          time.Time
 	UpdatedAt   time.Time
 	DeletedAt   *time.Time
 }

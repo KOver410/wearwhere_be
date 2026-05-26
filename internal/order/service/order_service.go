@@ -479,3 +479,156 @@ func paymentToResp(p *paymentdomain.Payment) *domain.PaymentResp {
 		ExpiredAt:   p.ExpiredAt,
 	}
 }
+
+// Detail loads a single order with all sub-orders and items for the given user.
+func (s *OrderService) Detail(ctx context.Context, userID uuid.UUID, orderNo string) (*domain.OrderResp, error) {
+	o, err := s.orderRepo.GetByOrderNo(ctx, userID, orderNo)
+	if err != nil {
+		if errors.Is(err, orderrepo.ErrNotFound) {
+			return nil, domain.ErrOrderNotFound
+		}
+		return nil, err
+	}
+	subs, err := s.subOrderRepo.ListByOrderID(ctx, o.ID)
+	if err != nil {
+		return nil, err
+	}
+	o.SubOrders = make([]domain.SubOrder, 0, len(subs))
+	for _, so := range subs {
+		items, err := s.itemRepo.ListBySubOrderID(ctx, so.ID)
+		if err != nil {
+			return nil, err
+		}
+		copySO := *so
+		for _, it := range items {
+			copySO.Items = append(copySO.Items, *it)
+		}
+		o.SubOrders = append(o.SubOrders, copySO)
+	}
+	return orderToResp(o), nil
+}
+
+// List returns a paginated list of orders for the given filter (must include UserID).
+func (s *OrderService) List(ctx context.Context, f orderrepo.ListFilter) (*domain.OrderListResp, error) {
+	items, total, err := s.orderRepo.List(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]domain.OrderListItem, 0, len(items))
+	for _, o := range items {
+		var itemCount, brandCount int
+		var firstImg *string
+		var firstName string
+		err := s.pool.QueryRow(ctx,
+			`SELECT COALESCE(SUM(oi.qty), 0)::INT,
+			        COUNT(DISTINCT so.brand_id)::INT,
+			        (SELECT image_url FROM order_items oi2
+			          JOIN sub_orders so2 ON so2.id = oi2.sub_order_id
+			          WHERE so2.order_id = $1 ORDER BY oi2.created_at ASC LIMIT 1),
+			        COALESCE((SELECT product_name FROM order_items oi3
+			          JOIN sub_orders so3 ON so3.id = oi3.sub_order_id
+			          WHERE so3.order_id = $1 ORDER BY oi3.created_at ASC LIMIT 1), '')
+			   FROM order_items oi
+			   JOIN sub_orders so ON so.id = oi.sub_order_id
+			  WHERE so.order_id = $1`,
+			o.ID).Scan(&itemCount, &brandCount, &firstImg, &firstName)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, domain.OrderListItem{
+			ID:            o.ID,
+			OrderNo:       o.OrderNo,
+			Status:        o.Status,
+			PaymentMethod: o.PaymentMethod,
+			PaymentStatus: o.PaymentStatus,
+			GrandTotalVND: o.GrandTotalVND,
+			ItemCount:     itemCount,
+			BrandCount:    brandCount,
+			FirstItemImage: firstImg,
+			FirstItemName:  firstName,
+			CreatedAt:     o.CreatedAt,
+		})
+	}
+
+	if f.PageSize <= 0 {
+		f.PageSize = 20
+	}
+	if f.Page <= 0 {
+		f.Page = 1
+	}
+	totalPages := (total + f.PageSize - 1) / f.PageSize
+	return &domain.OrderListResp{
+		Data:       out,
+		Page:       f.Page,
+		PageSize:   f.PageSize,
+		Total:      total,
+		TotalPages: totalPages,
+	}, nil
+}
+
+// Cancel cancels an order, releases reserved stock, and returns the updated order.
+func (s *OrderService) Cancel(ctx context.Context, userID uuid.UUID, orderNo, reason string) (*domain.OrderResp, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	o, err := s.orderRepo.GetByOrderNoForUpdate(ctx, tx, userID, orderNo)
+	if err != nil {
+		if errors.Is(err, orderrepo.ErrNotFound) {
+			return nil, domain.ErrOrderNotFound
+		}
+		return nil, err
+	}
+
+	// Load sub_orders to evaluate the cancel decision.
+	subs, err := s.subOrderRepo.ListByOrderID(ctx, o.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, so := range subs {
+		o.SubOrders = append(o.SubOrders, *so)
+	}
+
+	decision := o.CanCustomerCancel()
+	if !decision.Allowed {
+		if decision.Reason == "paid_not_supported" {
+			return nil, domain.ErrCancelPaidNotSupported
+		}
+		return nil, fmt.Errorf("%w: %s", domain.ErrCancelNotAllowed, decision.Reason)
+	}
+
+	newPayStatus := domain.PaymentStatusCancelled
+
+	if err := s.orderRepo.UpdateStatusOnCancel(ctx, tx, o.ID, reason, newPayStatus); err != nil {
+		return nil, err
+	}
+	if err := s.subOrderRepo.CancelAllByOrderID(ctx, tx, o.ID); err != nil {
+		return nil, err
+	}
+
+	pay, perr := s.paymentRepo.GetByOrderID(ctx, o.ID)
+	if perr == nil && pay.Status == domain.PaymentStatusPending {
+		_ = s.paymentRepo.UpdateOnCancelled(ctx, tx, pay.ID)
+	}
+
+	items, err := s.itemRepo.ListByOrderID(ctx, o.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, it := range items {
+		if err := s.variantRepo.Release(ctx, tx, it.VariantID, it.Qty); err != nil {
+			return nil, fmt.Errorf("release stock for variant %s: %w", it.VariantID, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	// Reload via Detail for the response (read-only).
+	return s.Detail(ctx, userID, orderNo)
+}

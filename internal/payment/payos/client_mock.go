@@ -39,3 +39,7 @@ func (m *MockClient) GetPayment(_ context.Context, paymentLinkID string) (*Payme
 }
 
 func (m *MockClient) CancelLink(_ context.Context, _, _ string) error { return nil }
+
+// SetBaseURL updates the base URL used for mock checkout links.
+// Useful in tests where the httptest.Server URL is known only after construction.
+func (m *MockClient) SetBaseURL(u string) { m.baseURL = u }

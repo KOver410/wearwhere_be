@@ -11,7 +11,9 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -35,12 +37,21 @@ import (
 	customeraddrhandler "github.com/wearwhere/wearwhere_be/internal/customeraddr/handler"
 	customeraddrrepo "github.com/wearwhere/wearwhere_be/internal/customeraddr/repo"
 	customeraddrservice "github.com/wearwhere/wearwhere_be/internal/customeraddr/service"
+	"github.com/wearwhere/wearwhere_be/internal/jobs"
+	orderhandler "github.com/wearwhere/wearwhere_be/internal/order/handler"
+	orderrepo "github.com/wearwhere/wearwhere_be/internal/order/repo"
+	orderservice "github.com/wearwhere/wearwhere_be/internal/order/service"
+	paymenthandler "github.com/wearwhere/wearwhere_be/internal/payment/handler"
+	"github.com/wearwhere/wearwhere_be/internal/payment/payos"
+	paymentrepo "github.com/wearwhere/wearwhere_be/internal/payment/repo"
+	paymentservice "github.com/wearwhere/wearwhere_be/internal/payment/service"
 	producthandler "github.com/wearwhere/wearwhere_be/internal/product/handler"
 	productrepo "github.com/wearwhere/wearwhere_be/internal/product/repo"
 	productservice "github.com/wearwhere/wearwhere_be/internal/product/service"
 	jwtsvc "github.com/wearwhere/wearwhere_be/internal/shared/jwt"
 	"github.com/wearwhere/wearwhere_be/internal/shared/storage"
 	authvalidator "github.com/wearwhere/wearwhere_be/internal/shared/validator"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
 	wishlisthandler "github.com/wearwhere/wearwhere_be/internal/wishlist/handler"
 	wishlistrepo "github.com/wearwhere/wearwhere_be/internal/wishlist/repo"
 	wishlistservice "github.com/wearwhere/wearwhere_be/internal/wishlist/service"
@@ -114,8 +125,48 @@ func buildTestServer(t *testing.T, pool *pgxpool.Pool, storageBackend storage.St
 	wishlisthandler.Mount(customerGroup, wishlisthandler.New(wishlistSvc))
 	carthandler.Mount(customerGroup, carthandler.New(cartSvc))
 
+	// ── Sprint 3: orders, payment, PayOS ──
+	orderRepo := orderrepo.NewOrderPG(pool)
+	subOrderRepo := orderrepo.NewSubOrderPG(pool)
+	orderItemRepo := orderrepo.NewOrderItemPG(pool)
+	paymentRepo := paymentrepo.NewPaymentPG(pool)
+
+	shippingProvider := provider.NewFlatRateProvider(brandRepo)
+	mockPayosClient := payos.NewMockClient("") // baseURL filled in after server starts
+
+	checkoutSvc := orderservice.NewCheckoutService(cartRepo, customeraddrRepo, shippingProvider)
+	orderSvc := orderservice.NewOrderService(
+		pool,
+		orderRepo, subOrderRepo, orderItemRepo,
+		paymentRepo, variantRepo,
+		customeraddrRepo, userRepo,
+		shippingProvider, mockPayosClient,
+		orderservice.Config{
+			ReservationTimeout: 30 * time.Minute,
+			PayosReturnURL:     "http://localhost/return",
+			PayosCancelURL:     "http://localhost/cancel",
+		},
+	)
+	webhookSvc := paymentservice.NewWebhookService(
+		pool, paymentRepo, orderRepo, subOrderRepo, orderItemRepo, variantRepo, mockPayosClient,
+	)
+
+	orderH := orderhandler.New(checkoutSvc, orderSvc)
+	paymentH := paymenthandler.New(webhookSvc, mockPayosClient, true /* mockMode */)
+
+	orderhandler.Mount(customerGroup, orderH)
+	paymenthandler.MountPublic(v1, paymentH)
+
+	// Dev/mock endpoints for PayOS simulation.
+	devGroup := r.Group("/dev")
+	paymenthandler.MountDev(devGroup, paymentH)
+
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
+
+	// Patch mock client base URL to match the httptest server address.
+	mockPayosClient.SetBaseURL(srv.URL)
+
 	return srv, jwtIssuer
 }
 
@@ -389,4 +440,404 @@ func doJSON(t *testing.T, method, url, token, body string, expectStatus int) map
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(raw, &out))
 	return out
+}
+
+// doForm sends a POST with application/x-www-form-urlencoded body.
+// Returns the parsed JSON response body (or nil on empty).
+func doForm(t *testing.T, rawURL string, form url.Values, expectStatus int) map[string]any {
+	t.Helper()
+	req, err := http.NewRequest("POST", rawURL, bytes.NewBufferString(form.Encode()))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	require.Equal(t, expectStatus, resp.StatusCode, "url=%s form=%v response=%s", rawURL, form, string(raw))
+	if len(raw) == 0 {
+		return nil
+	}
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(raw, &out))
+	return out
+}
+
+// extractQueryParam returns the named query parameter from a URL string.
+func extractQueryParam(rawURL, name string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return u.Query().Get(name)
+}
+
+// seedOrderFixtures seeds all entities required for order tests and returns
+// ownerID, brandID, categoryID, productID, variantID, customerID.
+// stock is the initial stock_qty set on the variant.
+// Cleanup is registered via t.Cleanup.
+func seedOrderFixtures(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	suffix string, stock int,
+) (ownerID, brandID, categoryID, productID, variantID, customerID string) {
+	t.Helper()
+
+	require.NoError(t, pool.QueryRow(ctx,
+		`INSERT INTO users (email, role, status, name)
+         VALUES ($1, 'brand', 'active', 'Owner') RETURNING id`,
+		"e2e-ord-owner-"+suffix+"@test.local").Scan(&ownerID))
+	brandSlug := "e2e-ord-brand-" + suffix
+	require.NoError(t, pool.QueryRow(ctx,
+		`INSERT INTO brands (slug, name, owner_user_id, status, shipping_flat_fee_vnd)
+         VALUES ($1, $2, $3, 'active', 30000) RETURNING id`,
+		brandSlug, brandSlug, ownerID).Scan(&brandID))
+	catSlug := "e2e-ord-cat-" + suffix
+	require.NoError(t, pool.QueryRow(ctx,
+		`INSERT INTO categories (slug, name) VALUES ($1, $2) RETURNING id`,
+		catSlug, catSlug).Scan(&categoryID))
+	prodSlug := "e2e-ord-prod-" + suffix
+	require.NoError(t, pool.QueryRow(ctx,
+		`INSERT INTO products (brand_id, category_id, slug, name, status)
+         VALUES ($1, $2, $3, $4, 'active') RETURNING id`,
+		brandID, categoryID, prodSlug, prodSlug).Scan(&productID))
+	require.NoError(t, pool.QueryRow(ctx,
+		`INSERT INTO product_variants (product_id, sku, size, color, price, stock_qty)
+         VALUES ($1, $2, 'M', 'Black', 200000, $3) RETURNING id`,
+		productID, "E2E-ORD-"+suffix, stock).Scan(&variantID))
+	require.NoError(t, pool.QueryRow(ctx,
+		`INSERT INTO users (email, role, status, name)
+         VALUES ($1, 'customer', 'active', 'Customer') RETURNING id`,
+		"e2e-ord-cust-"+suffix+"@test.local").Scan(&customerID))
+
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM order_items WHERE sub_order_id IN
+		  (SELECT id FROM sub_orders WHERE order_id IN
+		    (SELECT id FROM orders WHERE user_id=$1))`, customerID)
+		pool.Exec(ctx, `DELETE FROM sub_orders WHERE order_id IN
+		  (SELECT id FROM orders WHERE user_id=$1)`, customerID)
+		pool.Exec(ctx, `DELETE FROM payments WHERE order_id IN
+		  (SELECT id FROM orders WHERE user_id=$1)`, customerID)
+		pool.Exec(ctx, `DELETE FROM orders WHERE user_id=$1`, customerID)
+		pool.Exec(ctx, `DELETE FROM cart_items WHERE user_id=$1`, customerID)
+		pool.Exec(ctx, `DELETE FROM customer_addresses WHERE user_id=$1`, customerID)
+		pool.Exec(ctx, `DELETE FROM product_variants WHERE product_id=$1`, productID)
+		pool.Exec(ctx, `DELETE FROM products WHERE id=$1`, productID)
+		pool.Exec(ctx, `DELETE FROM brands WHERE id=$1`, brandID)
+		pool.Exec(ctx, `DELETE FROM users WHERE id IN ($1, $2)`, ownerID, customerID)
+		pool.Exec(ctx, `DELETE FROM categories WHERE id=$1`, categoryID)
+	})
+
+	return
+}
+
+// addCartAndAddress adds a cart item (qty=2) and a customer address, returning addressID.
+func addCartAndAddress(
+	t *testing.T, srvURL, token, variantID string,
+) (addressID string) {
+	t.Helper()
+
+	// Add to cart qty=2
+	addBody := fmt.Sprintf(`{"variant_id":"%s","qty":2}`, variantID)
+	postJSON(t, srvURL+"/api/v1/me/cart/items", token, addBody, http.StatusCreated)
+
+	// Create address
+	addrBody := `{"label":"Home","recipient_name":"Test User","recipient_phone":"+84901234567","address_line":"123 Test St","ward":"Ward 1","district":"District 1","city":"Ho Chi Minh City"}`
+	addrResp := postJSON(t, srvURL+"/api/v1/me/addresses", token, addrBody, http.StatusCreated)
+	addressID = addrResp["id"].(string)
+	return
+}
+
+// getVariantStockReserved reads stock_qty and reserved_qty directly from DB.
+func getVariantStockReserved(t *testing.T, ctx context.Context, pool *pgxpool.Pool, variantID string) (stock, reserved int) {
+	t.Helper()
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT stock_qty, reserved_qty FROM product_variants WHERE id=$1`,
+		variantID).Scan(&stock, &reserved))
+	return
+}
+
+// ── Sprint 3 E2E tests ────────────────────────────────────────────────────────
+
+// TestE2E_OrderPayosFlow: place PayOS order → simulate success webhook → verify paid+processing.
+func TestE2E_OrderPayosFlow(t *testing.T) {
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	pool, err := pgxpool.New(context.Background(), dbURL)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+
+	ctx := context.Background()
+	ownerID, _, _, _, variantID, customerID := seedOrderFixtures(t, ctx, pool, "payos1", 5)
+	_ = ownerID
+
+	backend := storage.NewLocal(t.TempDir(), "http://test/uploads")
+	srv, jwtIssuer := buildTestServer(t, pool, backend)
+	token := issueTokenForCustomer(t, jwtIssuer, customerID)
+
+	addressID := addCartAndAddress(t, srv.URL, token, variantID)
+
+	// Place PayOS order → 201.
+	orderBody := fmt.Sprintf(`{"address_id":"%s","payment_method":"payos"}`, addressID)
+	placeResp := postJSON(t, srv.URL+"/api/v1/me/orders", token, orderBody, http.StatusCreated)
+
+	order := placeResp["order"].(map[string]any)
+	payment := placeResp["payment"].(map[string]any)
+	orderNo := order["order_no"].(string)
+	checkoutURL := payment["checkout_url"].(string)
+	require.Contains(t, checkoutURL, "/dev/payos/mock-checkout?orderCode=")
+
+	// Extract orderCode from checkout URL.
+	orderCodeStr := extractQueryParam(checkoutURL, "orderCode")
+	require.NotEmpty(t, orderCodeStr)
+
+	// Simulate PayOS success webhook.
+	form := url.Values{"orderCode": {orderCodeStr}, "action": {"success"}}
+	simResp := doForm(t, srv.URL+"/dev/payos/simulate", form, http.StatusOK)
+	require.Equal(t, true, simResp["simulated"])
+
+	// GET order detail → status=processing, payment_status=paid.
+	// DetailOrder returns the order directly (not wrapped in {"order": ...}).
+	detailOrder := getJSON(t, srv.URL+"/api/v1/me/orders/"+orderNo, token, http.StatusOK)
+	require.Equal(t, "processing", detailOrder["status"])
+	require.Equal(t, "paid", detailOrder["payment_status"])
+
+	// Variant stock_qty decremented (committed), reserved_qty=0.
+	stock, reserved := getVariantStockReserved(t, ctx, pool, variantID)
+	require.Equal(t, 3, stock)   // 5 - 2 committed
+	require.Equal(t, 0, reserved) // released on commit
+}
+
+// TestE2E_OrderCODFlow: COD order → immediate processing, reserved stock held.
+func TestE2E_OrderCODFlow(t *testing.T) {
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	pool, err := pgxpool.New(context.Background(), dbURL)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+
+	ctx := context.Background()
+	ownerID, _, _, _, variantID, customerID := seedOrderFixtures(t, ctx, pool, "cod1", 5)
+	_ = ownerID
+
+	backend := storage.NewLocal(t.TempDir(), "http://test/uploads")
+	srv, jwtIssuer := buildTestServer(t, pool, backend)
+	token := issueTokenForCustomer(t, jwtIssuer, customerID)
+
+	addressID := addCartAndAddress(t, srv.URL, token, variantID)
+
+	// Place COD order → 201, status=processing immediately.
+	orderBody := fmt.Sprintf(`{"address_id":"%s","payment_method":"cod"}`, addressID)
+	placeResp := postJSON(t, srv.URL+"/api/v1/me/orders", token, orderBody, http.StatusCreated)
+
+	order := placeResp["order"].(map[string]any)
+	require.Equal(t, "processing", order["status"])
+	require.Equal(t, "cod", order["payment_method"])
+
+	// checkout_url should be nil / absent for COD.
+	payment := placeResp["payment"].(map[string]any)
+	require.Nil(t, payment["checkout_url"])
+
+	// stock_qty still 5 (not yet committed — COD commits on delivery),
+	// reserved_qty=2 (held until confirmed/cancelled).
+	stock, reserved := getVariantStockReserved(t, ctx, pool, variantID)
+	require.Equal(t, 5, stock)
+	require.Equal(t, 2, reserved)
+}
+
+// TestE2E_CancelPayosUnpaid: cancel a PayOS order before payment → reserved stock released.
+func TestE2E_CancelPayosUnpaid(t *testing.T) {
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	pool, err := pgxpool.New(context.Background(), dbURL)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+
+	ctx := context.Background()
+	ownerID, _, _, _, variantID, customerID := seedOrderFixtures(t, ctx, pool, "cancel1", 5)
+	_ = ownerID
+
+	backend := storage.NewLocal(t.TempDir(), "http://test/uploads")
+	srv, jwtIssuer := buildTestServer(t, pool, backend)
+	token := issueTokenForCustomer(t, jwtIssuer, customerID)
+
+	addressID := addCartAndAddress(t, srv.URL, token, variantID)
+
+	// Place PayOS order (don't fire webhook).
+	orderBody := fmt.Sprintf(`{"address_id":"%s","payment_method":"payos"}`, addressID)
+	placeResp := postJSON(t, srv.URL+"/api/v1/me/orders", token, orderBody, http.StatusCreated)
+	orderNo := placeResp["order"].(map[string]any)["order_no"].(string)
+
+	// Confirm reserved_qty=2 before cancel.
+	_, reserved := getVariantStockReserved(t, ctx, pool, variantID)
+	require.Equal(t, 2, reserved)
+
+	// Cancel the order. CancelOrder returns the order directly (not wrapped in {"order":...}).
+	cancelledOrder := postJSON(t, srv.URL+"/api/v1/me/orders/"+orderNo+"/cancel", token, "", http.StatusOK)
+	require.Equal(t, "cancelled", cancelledOrder["status"])
+
+	// reserved_qty back to 0 after cancel.
+	_, reservedAfter := getVariantStockReserved(t, ctx, pool, variantID)
+	require.Equal(t, 0, reservedAfter)
+}
+
+// TestE2E_InsufficientStockRace: 2 concurrent COD orders with stock=1 → exactly 1 wins.
+func TestE2E_InsufficientStockRace(t *testing.T) {
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	pool, err := pgxpool.New(context.Background(), dbURL)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+
+	ctx := context.Background()
+
+	// Seed brand/product/variant with stock=1.
+	ownerID, _, _, _, variantID, customerID1 := seedOrderFixtures(t, ctx, pool, "race1", 1)
+	_ = ownerID
+
+	// Seed a second customer.
+	var customerID2 string
+	require.NoError(t, pool.QueryRow(ctx,
+		`INSERT INTO users (email, role, status, name)
+         VALUES ('e2e-ord-cust-race2@test.local', 'customer', 'active', 'Customer2') RETURNING id`,
+	).Scan(&customerID2))
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM cart_items WHERE user_id=$1`, customerID2)
+		pool.Exec(ctx, `DELETE FROM customer_addresses WHERE user_id=$1`, customerID2)
+		pool.Exec(ctx, `DELETE FROM order_items WHERE sub_order_id IN
+		  (SELECT id FROM sub_orders WHERE order_id IN
+		    (SELECT id FROM orders WHERE user_id=$1))`, customerID2)
+		pool.Exec(ctx, `DELETE FROM sub_orders WHERE order_id IN
+		  (SELECT id FROM orders WHERE user_id=$1)`, customerID2)
+		pool.Exec(ctx, `DELETE FROM payments WHERE order_id IN
+		  (SELECT id FROM orders WHERE user_id=$1)`, customerID2)
+		pool.Exec(ctx, `DELETE FROM orders WHERE user_id=$1`, customerID2)
+		pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, customerID2)
+	})
+
+	backend := storage.NewLocal(t.TempDir(), "http://test/uploads")
+	srv, jwtIssuer := buildTestServer(t, pool, backend)
+
+	token1 := issueTokenForCustomer(t, jwtIssuer, customerID1)
+	token2 := issueTokenForCustomer(t, jwtIssuer, customerID2)
+
+	// Each customer adds qty=1 to cart (stock=1, so each only needs 1).
+	addBody1 := fmt.Sprintf(`{"variant_id":"%s","qty":1}`, variantID)
+	postJSON(t, srv.URL+"/api/v1/me/cart/items", token1, addBody1, http.StatusCreated)
+	addrBody1 := `{"label":"Home","recipient_name":"Customer 1","recipient_phone":"+84901234567","address_line":"123 Test St","ward":"Ward 1","district":"District 1","city":"Ho Chi Minh City"}`
+	addrResp1 := postJSON(t, srv.URL+"/api/v1/me/addresses", token1, addrBody1, http.StatusCreated)
+	addr1 := addrResp1["id"].(string)
+
+	addBody2 := fmt.Sprintf(`{"variant_id":"%s","qty":1}`, variantID)
+	postJSON(t, srv.URL+"/api/v1/me/cart/items", token2, addBody2, http.StatusCreated)
+	addrBody2 := `{"label":"Home","recipient_name":"Customer 2","recipient_phone":"+84901234568","address_line":"456 Test Ave","ward":"Ward 2","district":"District 2","city":"Ho Chi Minh City"}`
+	addrResp2 := postJSON(t, srv.URL+"/api/v1/me/addresses", token2, addrBody2, http.StatusCreated)
+	addr2 := addrResp2["id"].(string)
+
+	// Fire both POST /me/orders concurrently.
+	type result struct {
+		status int
+	}
+	results := make([]result, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	placeOrder := func(idx int, token, addrID string) {
+		defer wg.Done()
+		body := fmt.Sprintf(`{"address_id":"%s","payment_method":"cod"}`, addrID)
+		req, _ := http.NewRequest("POST", srv.URL+"/api/v1/me/orders", bytes.NewBufferString(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			results[idx].status = 0
+			return
+		}
+		defer resp.Body.Close()
+		io.ReadAll(resp.Body) //nolint:errcheck
+		results[idx].status = resp.StatusCode
+	}
+
+	go placeOrder(0, token1, addr1)
+	go placeOrder(1, token2, addr2)
+	wg.Wait()
+
+	statuses := []int{results[0].status, results[1].status}
+	created := 0
+	conflict := 0
+	for _, s := range statuses {
+		switch s {
+		case http.StatusCreated:
+			created++
+		case http.StatusConflict:
+			conflict++
+		}
+	}
+	require.Equal(t, 1, created, "exactly one order should succeed, got statuses: %v", statuses)
+	require.Equal(t, 1, conflict, "exactly one order should fail with 409, got statuses: %v", statuses)
+}
+
+// TestE2E_ReservationCleanupJob: backdate payment → run CleanupOnce → order cancelled + stock released.
+func TestE2E_ReservationCleanupJob(t *testing.T) {
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	pool, err := pgxpool.New(context.Background(), dbURL)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+
+	ctx := context.Background()
+	ownerID, _, _, _, variantID, customerID := seedOrderFixtures(t, ctx, pool, "cleanup1", 5)
+	_ = ownerID
+
+	backend := storage.NewLocal(t.TempDir(), "http://test/uploads")
+	srv, jwtIssuer := buildTestServer(t, pool, backend)
+	token := issueTokenForCustomer(t, jwtIssuer, customerID)
+
+	addressID := addCartAndAddress(t, srv.URL, token, variantID)
+
+	// Place PayOS order (don't fire webhook).
+	orderBody := fmt.Sprintf(`{"address_id":"%s","payment_method":"payos"}`, addressID)
+	placeResp := postJSON(t, srv.URL+"/api/v1/me/orders", token, orderBody, http.StatusCreated)
+	orderNo := placeResp["order"].(map[string]any)["order_no"].(string)
+
+	// Confirm reserved_qty=2 after placement.
+	_, reserved := getVariantStockReserved(t, ctx, pool, variantID)
+	require.Equal(t, 2, reserved)
+
+	// Backdate payment.created_at to 60 minutes ago so the cleanup job picks it up.
+	_, execErr := pool.Exec(ctx,
+		`UPDATE payments SET created_at = NOW() - INTERVAL '60 minutes'
+		 WHERE order_id = (SELECT id FROM orders WHERE order_no=$1)`, orderNo)
+	require.NoError(t, execErr)
+
+	// Build repos and run CleanupOnce directly (timeoutMin=30 so 60-min-old payment qualifies).
+	orderRepo := orderrepo.NewOrderPG(pool)
+	subOrderRepo := orderrepo.NewSubOrderPG(pool)
+	orderItemRepo := orderrepo.NewOrderItemPG(pool)
+	paymentRepo := paymentrepo.NewPaymentPG(pool)
+	variantRepo := productrepo.NewVariantPG(pool)
+
+	cleanupJob := jobs.NewReservationCleanupJob(
+		pool, orderRepo, subOrderRepo, orderItemRepo, paymentRepo, variantRepo, 30,
+	)
+	n, cleanupJobErr := cleanupJob.CleanupOnce(ctx)
+	require.NoError(t, cleanupJobErr)
+	require.GreaterOrEqual(t, n, 1, "cleanup job should have expired at least 1 order")
+
+	// GET order detail → status=cancelled. DetailOrder returns the order directly.
+	detailOrder := getJSON(t, srv.URL+"/api/v1/me/orders/"+orderNo, token, http.StatusOK)
+	require.Equal(t, "cancelled", detailOrder["status"])
+
+	// stock_qty unchanged (5), reserved_qty=0 (released by cleanup).
+	stock, reservedAfter := getVariantStockReserved(t, ctx, pool, variantID)
+	require.Equal(t, 5, stock)
+	require.Equal(t, 0, reservedAfter)
 }

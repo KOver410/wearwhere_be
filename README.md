@@ -192,6 +192,25 @@ To create admin/brand users, insert directly into the DB (or use a future admin 
 UPDATE users SET role='admin' WHERE email='admin@wearwhere.vn';
 ```
 
+## Sprint 3 — Orders, Checkout, PayOS
+
+New endpoints:
+- `GET  /api/v1/me/checkout/preview?address_id=...` — dry-run with multi-brand totals + shipping per brand
+- `POST /api/v1/me/orders` — place order (COD or PayOS)
+- `GET  /api/v1/me/orders` — paginated list (filter: status, page, page_size, from, to)
+- `GET  /api/v1/me/orders/:order_no` — detail + status timeline
+- `POST /api/v1/me/orders/:order_no/cancel` — cancel (Sprint 3: COD anytime pre-confirm, PayOS unpaid only)
+- `POST /api/v1/payments/payos/webhook` — public PayOS callback (signature-verified)
+
+PayOS modes (`PAYOS_MODE` env):
+- `mock` (default): no creds needed. Dev page at `GET /dev/payos/mock-checkout?orderCode=N` simulates the gateway.
+- `production`: requires `PAYOS_CLIENT_ID`, `PAYOS_API_KEY`, `PAYOS_CHECKSUM_KEY`.
+
+A `reservation_cleanup` job runs every `RESERVATION_CLEANUP_INTERVAL` (default 5m) and releases stock for PayOS orders pending > `RESERVATION_TIMEOUT_MINUTES` (default 30).
+
+Spec: `docs/superpowers/specs/2026-05-24-sprint-3-orders-checkout-payos-design.md`
+Plan: `docs/superpowers/plans/2026-05-24-sprint-3-orders-checkout-payos.md`
+
 ## Security notes
 
 - Passwords hashed with **bcrypt cost 12** (SRS 4.2 NFR-11).

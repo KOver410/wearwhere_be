@@ -77,7 +77,7 @@ type OrderItem struct {
 type CancelDecision struct {
 	Allowed bool
 	Reason  string // subcode: "" (allowed), "paid_not_supported", "already_shipped",
-	               // "already_cancelled", "already_completed"
+	// "already_cancelled", "already_completed"
 }
 
 // CanCustomerCancel implements the rule table from spec §5.3.

@@ -91,21 +91,21 @@ type SubOrderResp struct {
 }
 
 type OrderResp struct {
-	ID              uuid.UUID       `json:"id"`
-	OrderNo         string          `json:"order_no"`
-	Status          OrderStatus     `json:"status"`
-	PaymentMethod   PaymentMethod   `json:"payment_method"`
-	PaymentStatus   PaymentStatus   `json:"payment_status"`
-	SubtotalVND     int64           `json:"subtotal_vnd"`
-	ShippingTotalVND int64          `json:"shipping_total_vnd"`
-	GrandTotalVND   int64           `json:"grand_total_vnd"`
-	ShippingAddress ShippingAddress `json:"shipping_address"`
-	Notes           string          `json:"notes"`
-	CancelReason    string          `json:"cancel_reason,omitempty"`
-	SubOrders       []SubOrderResp  `json:"sub_orders"`
-	CreatedAt       time.Time       `json:"created_at"`
-	PaidAt          *time.Time      `json:"paid_at"`
-	CancelledAt     *time.Time      `json:"cancelled_at"`
+	ID               uuid.UUID       `json:"id"`
+	OrderNo          string          `json:"order_no"`
+	Status           OrderStatus     `json:"status"`
+	PaymentMethod    PaymentMethod   `json:"payment_method"`
+	PaymentStatus    PaymentStatus   `json:"payment_status"`
+	SubtotalVND      int64           `json:"subtotal_vnd"`
+	ShippingTotalVND int64           `json:"shipping_total_vnd"`
+	GrandTotalVND    int64           `json:"grand_total_vnd"`
+	ShippingAddress  ShippingAddress `json:"shipping_address"`
+	Notes            string          `json:"notes"`
+	CancelReason     string          `json:"cancel_reason,omitempty"`
+	SubOrders        []SubOrderResp  `json:"sub_orders"`
+	CreatedAt        time.Time       `json:"created_at"`
+	PaidAt           *time.Time      `json:"paid_at"`
+	CancelledAt      *time.Time      `json:"cancelled_at"`
 }
 
 type OrderListItem struct {

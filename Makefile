@@ -66,4 +66,4 @@ test-unit:
 	go test ./... -v -race
 
 test-integration: test-db-up
-	TEST_DATABASE_URL="$(TEST_DB_URL)" go test ./... -tags=integration -v -race
+	TEST_DATABASE_URL="$(TEST_DB_URL)" go test -p 1 ./... -tags=integration -v -race

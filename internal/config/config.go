@@ -11,16 +11,19 @@ import (
 )
 
 type Config struct {
-	App     AppConfig
-	HTTP    HTTPConfig
-	DB      DBConfig
-	Redis   RedisConfig
-	JWT     JWTConfig
-	SMTP    SMTPConfig
-	SMS     SMSConfig
-	OAuth   OAuthConfig
-	Limit   LimitConfig
-	Storage StorageConfig
+	App         AppConfig
+	HTTP        HTTPConfig
+	DB          DBConfig
+	Redis       RedisConfig
+	JWT         JWTConfig
+	SMTP        SMTPConfig
+	SMS         SMSConfig
+	OAuth       OAuthConfig
+	Limit       LimitConfig
+	Storage     StorageConfig
+	Payos       PayosConfig
+	Shipping    ShippingConfig
+	Reservation ReservationConfig
 }
 
 type AppConfig struct {
@@ -171,7 +174,42 @@ func Load() (*Config, error) {
 			AllowedMIMEs:   csvOrSingle("STORAGE_ALLOWED_MIMES", ""),
 		},
 	}
+	cfg.Payos = PayosConfig{
+		Mode:        getEnv("PAYOS_MODE", "mock"),
+		ClientID:    getEnv("PAYOS_CLIENT_ID", ""),
+		APIKey:      getEnv("PAYOS_API_KEY", ""),
+		ChecksumKey: getEnv("PAYOS_CHECKSUM_KEY", ""),
+		ReturnURL:   getEnv("PAYOS_RETURN_URL", "http://localhost:3000/checkout/success"),
+		CancelURL:   getEnv("PAYOS_CANCEL_URL", "http://localhost:3000/checkout/cancel"),
+		BaseURL:     getEnv("PAYOS_BASE_URL", "http://localhost:8080"),
+	}
+	cfg.Shipping = ShippingConfig{
+		Provider: getEnv("SHIPPING_PROVIDER", "flat"),
+	}
+	cfg.Reservation = ReservationConfig{
+		TimeoutMinutes:  getInt("RESERVATION_TIMEOUT_MINUTES", 30),
+		CleanupInterval: getDuration("RESERVATION_CLEANUP_INTERVAL", 5*time.Minute),
+	}
 	return cfg, nil
+}
+
+type PayosConfig struct {
+	Mode        string
+	ClientID    string
+	APIKey      string
+	ChecksumKey string
+	ReturnURL   string
+	CancelURL   string
+	BaseURL     string
+}
+
+type ShippingConfig struct {
+	Provider string
+}
+
+type ReservationConfig struct {
+	TimeoutMinutes  int
+	CleanupInterval time.Duration
 }
 
 func (c *Config) IsProduction() bool { return c.App.Env == "production" }

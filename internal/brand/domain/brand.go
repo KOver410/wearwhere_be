@@ -15,19 +15,20 @@ const (
 )
 
 type Brand struct {
-	ID          uuid.UUID
-	Slug        string
-	Name        string
-	OwnerUserID uuid.UUID
-	Story       *string
-	LogoURL     *string
-	BannerURL   *string
-	WebsiteURL  *string
-	Status      BrandStatus
-	VerifiedAt  *time.Time
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	DeletedAt   *time.Time
+	ID                 uuid.UUID
+	Slug               string
+	Name               string
+	OwnerUserID        uuid.UUID
+	Story              *string
+	LogoURL            *string
+	BannerURL          *string
+	WebsiteURL         *string
+	Status             BrandStatus
+	ShippingFlatFeeVND int64 `json:"shipping_flat_fee_vnd"`
+	VerifiedAt         *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	DeletedAt          *time.Time
 }
 
 type BrandAddress struct {

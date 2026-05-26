@@ -34,10 +34,19 @@ import (
 	customeraddrhandler "github.com/wearwhere/wearwhere_be/internal/customeraddr/handler"
 	customeraddrrepo "github.com/wearwhere/wearwhere_be/internal/customeraddr/repo"
 	customeraddrservice "github.com/wearwhere/wearwhere_be/internal/customeraddr/service"
+	jobsmod "github.com/wearwhere/wearwhere_be/internal/jobs"
+	orderhandler "github.com/wearwhere/wearwhere_be/internal/order/handler"
+	orderrepo "github.com/wearwhere/wearwhere_be/internal/order/repo"
+	orderservice "github.com/wearwhere/wearwhere_be/internal/order/service"
+	paymenthandler "github.com/wearwhere/wearwhere_be/internal/payment/handler"
+	"github.com/wearwhere/wearwhere_be/internal/payment/payos"
+	paymentrepo "github.com/wearwhere/wearwhere_be/internal/payment/repo"
+	paymentservice "github.com/wearwhere/wearwhere_be/internal/payment/service"
 	producthandler "github.com/wearwhere/wearwhere_be/internal/product/handler"
 	productrepo "github.com/wearwhere/wearwhere_be/internal/product/repo"
 	productservice "github.com/wearwhere/wearwhere_be/internal/product/service"
 	"github.com/wearwhere/wearwhere_be/internal/shared/storage"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
 	wishlisthandler "github.com/wearwhere/wearwhere_be/internal/wishlist/handler"
 	wishlistrepo "github.com/wearwhere/wearwhere_be/internal/wishlist/repo"
 	wishlistservice "github.com/wearwhere/wearwhere_be/internal/wishlist/service"
@@ -123,6 +132,55 @@ func main() {
 	wishlistSvc := wishlistservice.New(wishlistRepo, productRepo)
 	cartSvc := cartservice.New(cartRepo, variantRepo)
 
+	// ── Sprint 3 repos ──
+	orderRepoSvc := orderrepo.NewOrderPG(pgPool)
+	subOrderRepo := orderrepo.NewSubOrderPG(pgPool)
+	orderItemRepo := orderrepo.NewOrderItemPG(pgPool)
+	paymentRepo := paymentrepo.NewPaymentPG(pgPool)
+
+	// ── shipping provider ──
+	shippingProvider, err := provider.NewFromConfig(
+		provider.Config{Provider: cfg.Shipping.Provider},
+		brandRepo,
+	)
+	if err != nil {
+		log.Fatalf("shipping provider: %v", err)
+	}
+
+	// ── PayOS client ──
+	payosClient, err := payos.NewFromConfig(payos.Config{
+		Mode:        cfg.Payos.Mode,
+		ClientID:    cfg.Payos.ClientID,
+		APIKey:      cfg.Payos.APIKey,
+		ChecksumKey: cfg.Payos.ChecksumKey,
+		BaseURL:     cfg.Payos.BaseURL,
+	})
+	if err != nil {
+		log.Fatalf("payos: %v", err)
+	}
+
+	// ── Sprint 3 services ──
+	checkoutSvc := orderservice.NewCheckoutService(cartRepo, customerAddrRepo, shippingProvider)
+	orderSvc := orderservice.NewOrderService(
+		pgPool,
+		orderRepoSvc, subOrderRepo, orderItemRepo,
+		paymentRepo, variantRepo,
+		customerAddrRepo, userRepo,
+		shippingProvider, payosClient,
+		orderservice.Config{
+			ReservationTimeout: time.Duration(cfg.Reservation.TimeoutMinutes) * time.Minute,
+			PayosReturnURL:     cfg.Payos.ReturnURL,
+			PayosCancelURL:     cfg.Payos.CancelURL,
+		},
+	)
+	webhookSvc := paymentservice.NewWebhookService(
+		pgPool, paymentRepo, orderRepoSvc, subOrderRepo, orderItemRepo, variantRepo, payosClient,
+	)
+
+	// ── Sprint 3 handlers ──
+	orderH := orderhandler.New(checkoutSvc, orderSvc)
+	paymentH := paymenthandler.New(webhookSvc, payosClient, cfg.Payos.Mode == "mock")
+
 	// ── handlers ──
 	deps := &handler.Deps{
 		Auth:      handler.NewAuthHandler(authSvc),
@@ -188,6 +246,21 @@ func main() {
 	customeraddrhandler.Mount(customerGroup, customerAddrHandler)
 	wishlisthandler.Mount(customerGroup, wishlistHandler)
 	carthandler.Mount(customerGroup, cartHandler)
+	orderhandler.Mount(customerGroup, orderH)
+
+	paymenthandler.MountPublic(v1, paymentH)
+
+	if cfg.Payos.Mode == "mock" {
+		devGroup := r.Group("/dev")
+		paymenthandler.MountDev(devGroup, paymentH)
+	}
+
+	// ── cleanup job ──
+	cleanupJob := jobsmod.NewReservationCleanupJob(
+		pgPool, orderRepoSvc, subOrderRepo, orderItemRepo,
+		paymentRepo, variantRepo, cfg.Reservation.TimeoutMinutes,
+	)
+	go cleanupJob.Run(ctx, cfg.Reservation.CleanupInterval)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.HTTP.Port,

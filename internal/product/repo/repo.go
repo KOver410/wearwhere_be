@@ -13,9 +13,10 @@ import (
 )
 
 var (
-	ErrNotFound        = errors.New("product: not found")
-	ErrSlugTaken       = errors.New("product: slug taken")
-	ErrVariantConflict = errors.New("product: variant conflict")
+	ErrNotFound          = errors.New("product: not found")
+	ErrSlugTaken         = errors.New("product: slug taken")
+	ErrVariantConflict   = errors.New("product: variant conflict")
+	ErrInsufficientStock = errors.New("product variant: insufficient stock")
 )
 
 type DBTX interface {
@@ -48,6 +49,12 @@ type VariantRepo interface {
 	// active, in-stock-capable, and not soft-deleted. Returns ErrNotFound if the
 	// variant is missing, inactive, soft-deleted, or its product is not active.
 	FindForPurchase(ctx context.Context, variantID uuid.UUID) (*domain.Variant, *domain.Product, error)
+	// Reserve atomically increments reserved_qty by qty when available stock >= qty.
+	Reserve(ctx context.Context, db DBTX, variantID uuid.UUID, qty int) error
+	// Commit decrements both stock_qty and reserved_qty by qty (payment confirmed).
+	Commit(ctx context.Context, db DBTX, variantID uuid.UUID, qty int) error
+	// Release decrements only reserved_qty by qty (order cancelled/expired).
+	Release(ctx context.Context, db DBTX, variantID uuid.UUID, qty int) error
 }
 
 type ImageRepo interface {

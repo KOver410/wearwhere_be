@@ -121,3 +121,27 @@ func TestBrandPG_List_WithQueryFilter(t *testing.T) {
 	require.GreaterOrEqual(t, total, 1)
 	require.GreaterOrEqual(t, len(items), 1)
 }
+
+func TestBrandPG_FindByID_IncludesShippingFlatFee(t *testing.T) {
+	tx := testfixtures.BeginTx(t, testPool)
+	sb := testfixtures.SeedBrand(t, tx, uuid.Nil)
+
+	_, err := tx.Exec(context.Background(),
+		`UPDATE brands SET shipping_flat_fee_vnd=45000 WHERE id=$1`, sb.ID)
+	require.NoError(t, err)
+
+	repo := NewBrandPG(tx)
+	b, err := repo.FindByID(context.Background(), sb.ID)
+	require.NoError(t, err)
+	require.Equal(t, int64(45000), b.ShippingFlatFeeVND)
+}
+
+func TestBrandPG_FindByID_DefaultsTo30k(t *testing.T) {
+	tx := testfixtures.BeginTx(t, testPool)
+	sb := testfixtures.SeedBrand(t, tx, uuid.Nil)
+
+	repo := NewBrandPG(tx)
+	b, err := repo.FindByID(context.Background(), sb.ID)
+	require.NoError(t, err)
+	require.Equal(t, int64(30000), b.ShippingFlatFeeVND)
+}

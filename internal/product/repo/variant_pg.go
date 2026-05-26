@@ -140,6 +140,77 @@ func (r *VariantPG) SoftDelete(ctx context.Context, id, productID uuid.UUID) err
 	return nil
 }
 
+// Reserve atomically increments reserved_qty by qty when available stock >= qty.
+// Requires variant to be active and not soft-deleted.
+// Returns ErrInsufficientStock if the condition fails (row not matched).
+func (r *VariantPG) Reserve(ctx context.Context, db DBTX, variantID uuid.UUID, qty int) error {
+	if db == nil {
+		db = r.db
+	}
+	tag, err := db.Exec(ctx,
+		`UPDATE product_variants
+		    SET reserved_qty = reserved_qty + $2,
+		        updated_at   = NOW()
+		  WHERE id = $1
+		    AND deleted_at IS NULL
+		    AND is_active = TRUE
+		    AND (stock_qty - reserved_qty) >= $2`,
+		variantID, qty)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrInsufficientStock
+	}
+	return nil
+}
+
+// Commit decrements both stock_qty and reserved_qty by qty (payment confirmed).
+// Returns ErrInsufficientStock if reserved_qty or stock_qty < qty.
+func (r *VariantPG) Commit(ctx context.Context, db DBTX, variantID uuid.UUID, qty int) error {
+	if db == nil {
+		db = r.db
+	}
+	tag, err := db.Exec(ctx,
+		`UPDATE product_variants
+		    SET stock_qty    = stock_qty - $2,
+		        reserved_qty = reserved_qty - $2,
+		        updated_at   = NOW()
+		  WHERE id = $1
+		    AND reserved_qty >= $2
+		    AND stock_qty    >= $2`,
+		variantID, qty)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrInsufficientStock
+	}
+	return nil
+}
+
+// Release decrements only reserved_qty by qty (order cancelled/expired/failed).
+// Returns ErrInsufficientStock if reserved_qty < qty.
+func (r *VariantPG) Release(ctx context.Context, db DBTX, variantID uuid.UUID, qty int) error {
+	if db == nil {
+		db = r.db
+	}
+	tag, err := db.Exec(ctx,
+		`UPDATE product_variants
+		    SET reserved_qty = reserved_qty - $2,
+		        updated_at   = NOW()
+		  WHERE id = $1
+		    AND reserved_qty >= $2`,
+		variantID, qty)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrInsufficientStock
+	}
+	return nil
+}
+
 func (r *VariantPG) FindForPurchase(ctx context.Context, variantID uuid.UUID) (*domain.Variant, *domain.Product, error) {
 	var v domain.Variant
 	var p domain.Product

@@ -6,6 +6,7 @@ package testfixtures
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/google/uuid"
@@ -13,6 +14,57 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// MustPool opens a *pgxpool.Pool from TEST_DATABASE_URL and registers a cleanup
+// to close it when the test ends. It is safe to call multiple times per test —
+// each call returns a fresh pool that is closed via t.Cleanup.
+func MustPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Fatal("TEST_DATABASE_URL is required for integration tests")
+	}
+	pool, err := pgxpool.New(context.Background(), dsn)
+	if err != nil {
+		t.Fatalf("open pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
+}
+
+// GetVariantStock reads stock_qty and reserved_qty for a variant directly from
+// the DB. Use the pool returned by MustPool — do NOT call inside a rolled-back
+// transaction.
+func GetVariantStock(t *testing.T, db DBTX, variantID uuid.UUID) (stock, reserved int) {
+	t.Helper()
+	err := db.QueryRow(context.Background(),
+		`SELECT stock_qty, reserved_qty FROM product_variants WHERE id=$1`, variantID,
+	).Scan(&stock, &reserved)
+	if err != nil {
+		t.Fatalf("GetVariantStock: %v", err)
+	}
+	return
+}
+
+// Clean truncates integration-test tables that accumulate across tests.
+// It is safe to call even when the tables are empty.
+func Clean(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	tables := []string{
+		"order_items", "sub_orders", "payments", "orders",
+		"cart_items", "wishlist_items", "customer_addresses",
+		"product_variants", "product_images", "products",
+		"brands", "users",
+	}
+	ctx := context.Background()
+	for _, tbl := range tables {
+		if _, err := pool.Exec(ctx,
+			"DELETE FROM "+tbl+" WHERE TRUE"); err != nil {
+			// Non-fatal — some tables may have FK constraints; best-effort.
+			t.Logf("Clean: table %s: %v", tbl, err)
+		}
+	}
+}
 
 // DBTX is the read/write subset both *pgxpool.Pool and pgx.Tx satisfy.
 type DBTX interface {

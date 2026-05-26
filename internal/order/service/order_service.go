@@ -57,7 +57,7 @@ func NewOrderService(
 		cfg.ReservationTimeout = 30 * time.Minute
 	}
 	return &OrderService{
-		pool: pool,
+		pool:      pool,
 		orderRepo: or, subOrderRepo: sr, itemRepo: ir, paymentRepo: pr,
 		variantRepo: vr, addrRepo: ar, userRepo: ur,
 		shipping: ship, payosClient: pc, cfg: cfg,
@@ -538,17 +538,17 @@ func (s *OrderService) List(ctx context.Context, f orderrepo.ListFilter) (*domai
 		}
 
 		out = append(out, domain.OrderListItem{
-			ID:            o.ID,
-			OrderNo:       o.OrderNo,
-			Status:        o.Status,
-			PaymentMethod: o.PaymentMethod,
-			PaymentStatus: o.PaymentStatus,
-			GrandTotalVND: o.GrandTotalVND,
-			ItemCount:     itemCount,
-			BrandCount:    brandCount,
+			ID:             o.ID,
+			OrderNo:        o.OrderNo,
+			Status:         o.Status,
+			PaymentMethod:  o.PaymentMethod,
+			PaymentStatus:  o.PaymentStatus,
+			GrandTotalVND:  o.GrandTotalVND,
+			ItemCount:      itemCount,
+			BrandCount:     brandCount,
 			FirstItemImage: firstImg,
 			FirstItemName:  firstName,
-			CreatedAt:     o.CreatedAt,
+			CreatedAt:      o.CreatedAt,
 		})
 	}
 

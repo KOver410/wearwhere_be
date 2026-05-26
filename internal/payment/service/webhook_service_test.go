@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	authrepo "github.com/wearwhere/wearwhere_be/internal/auth/repo"
 	brandrepo "github.com/wearwhere/wearwhere_be/internal/brand/repo"
 	customeraddrrepo "github.com/wearwhere/wearwhere_be/internal/customeraddr/repo"
 	orderdomain "github.com/wearwhere/wearwhere_be/internal/order/domain"
@@ -20,7 +21,6 @@ import (
 	productrepo "github.com/wearwhere/wearwhere_be/internal/product/repo"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
 	"github.com/wearwhere/wearwhere_be/internal/testfixtures"
-	authrepo "github.com/wearwhere/wearwhere_be/internal/auth/repo"
 )
 
 // webhookSetup seeds a full order+payment and returns the payos_order_code to use in

@@ -13,8 +13,8 @@ import (
 	customeraddrdomain "github.com/wearwhere/wearwhere_be/internal/customeraddr/domain"
 	customeraddrrepo "github.com/wearwhere/wearwhere_be/internal/customeraddr/repo"
 	"github.com/wearwhere/wearwhere_be/internal/order/domain"
-	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
 	shippingdomain "github.com/wearwhere/wearwhere_be/internal/shipping/domain"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
 )
 
 // ---------------------------------------------------------------------------

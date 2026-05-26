@@ -604,7 +604,7 @@ func TestE2E_OrderPayosFlow(t *testing.T) {
 
 	// Variant stock_qty decremented (committed), reserved_qty=0.
 	stock, reserved := getVariantStockReserved(t, ctx, pool, variantID)
-	require.Equal(t, 3, stock)   // 5 - 2 committed
+	require.Equal(t, 3, stock)    // 5 - 2 committed
 	require.Equal(t, 0, reserved) // released on commit
 }
 

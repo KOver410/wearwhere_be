@@ -12,12 +12,14 @@ import (
 
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
+	"github.com/wearwhere/wearwhere_be/internal/shared/slug"
 )
 
 var V = func() *validator.Validate {
 	v := validator.New()
 	_ = v.RegisterValidation("strong_password", strongPassword)
 	_ = v.RegisterValidation("e164", e164)
+	_ = v.RegisterValidation("slug", slugValidator)
 	return v
 }()
 
@@ -27,6 +29,7 @@ func RegisterWithGin() {
 	if v, ok := binding.Validator.Engine().(*validator.Validate); ok {
 		_ = v.RegisterValidation("strong_password", strongPassword)
 		_ = v.RegisterValidation("e164", e164)
+		_ = v.RegisterValidation("slug", slugValidator)
 	}
 }
 
@@ -52,4 +55,8 @@ var e164Re = regexp.MustCompile(`^\+[1-9]\d{7,14}$`)
 
 func e164(fl validator.FieldLevel) bool {
 	return e164Re.MatchString(fl.Field().String())
+}
+
+func slugValidator(fl validator.FieldLevel) bool {
+	return slug.IsValid(fl.Field().String())
 }

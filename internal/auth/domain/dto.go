@@ -86,17 +86,17 @@ type AuthResponse struct {
 }
 
 type UserResponse struct {
-	ID              string  `json:"id"`
-	Email           *string `json:"email,omitempty"`
-	Phone           *string `json:"phone,omitempty"`
-	Name            string  `json:"name"`
-	Role            string  `json:"role"`
-	Status          string  `json:"status"`
-	AvatarURL       *string `json:"avatar_url,omitempty"`
-	Bio             *string `json:"bio,omitempty"`
-	EmailVerified   bool    `json:"email_verified"`
-	PhoneVerified   bool    `json:"phone_verified"`
-	CreatedAt       string  `json:"created_at"`
+	ID            string  `json:"id"`
+	Email         *string `json:"email,omitempty"`
+	Phone         *string `json:"phone,omitempty"`
+	Name          string  `json:"name"`
+	Role          string  `json:"role"`
+	Status        string  `json:"status"`
+	AvatarURL     *string `json:"avatar_url,omitempty"`
+	Bio           *string `json:"bio,omitempty"`
+	EmailVerified bool    `json:"email_verified"`
+	PhoneVerified bool    `json:"phone_verified"`
+	CreatedAt     string  `json:"created_at"`
 }
 
 func ToUserResponse(u *User) UserResponse {

@@ -22,6 +22,25 @@ import (
 	rediscli "github.com/wearwhere/wearwhere_be/internal/shared/redis"
 	"github.com/wearwhere/wearwhere_be/internal/shared/sms"
 	authvalidator "github.com/wearwhere/wearwhere_be/internal/shared/validator"
+
+	authdomain "github.com/wearwhere/wearwhere_be/internal/auth/domain"
+	brandhandler "github.com/wearwhere/wearwhere_be/internal/brand/handler"
+	brandmw "github.com/wearwhere/wearwhere_be/internal/brand/middleware"
+	brandrepo "github.com/wearwhere/wearwhere_be/internal/brand/repo"
+	brandservice "github.com/wearwhere/wearwhere_be/internal/brand/service"
+	carthandler "github.com/wearwhere/wearwhere_be/internal/cart/handler"
+	cartrepo "github.com/wearwhere/wearwhere_be/internal/cart/repo"
+	cartservice "github.com/wearwhere/wearwhere_be/internal/cart/service"
+	customeraddrhandler "github.com/wearwhere/wearwhere_be/internal/customeraddr/handler"
+	customeraddrrepo "github.com/wearwhere/wearwhere_be/internal/customeraddr/repo"
+	customeraddrservice "github.com/wearwhere/wearwhere_be/internal/customeraddr/service"
+	producthandler "github.com/wearwhere/wearwhere_be/internal/product/handler"
+	productrepo "github.com/wearwhere/wearwhere_be/internal/product/repo"
+	productservice "github.com/wearwhere/wearwhere_be/internal/product/service"
+	"github.com/wearwhere/wearwhere_be/internal/shared/storage"
+	wishlisthandler "github.com/wearwhere/wearwhere_be/internal/wishlist/handler"
+	wishlistrepo "github.com/wearwhere/wearwhere_be/internal/wishlist/repo"
+	wishlistservice "github.com/wearwhere/wearwhere_be/internal/wishlist/service"
 )
 
 func main() {
@@ -60,6 +79,30 @@ func main() {
 	sessionRepo := repo.NewSessionPG(pgPool)
 	otpStore := repo.NewOTPRedis(rdb)
 	attemptStore := repo.NewAttemptRedis(rdb)
+	brandRepo := brandrepo.NewBrandPG(pgPool)
+	addressRepo := brandrepo.NewAddressPG(pgPool)
+	productRepo := productrepo.NewProductPG(pgPool)
+	variantRepo := productrepo.NewVariantPG(pgPool)
+	imageRepo := productrepo.NewImagePG(pgPool)
+	categoryRepo := productrepo.NewCategoryPG(pgPool)
+	styleTagRepo := productrepo.NewStyleTagPG(pgPool)
+	customerAddrRepo := customeraddrrepo.NewAddressPG(pgPool)
+	wishlistRepo := wishlistrepo.NewWishlistPG(pgPool)
+	cartRepo := cartrepo.NewCartPG(pgPool)
+
+	// ── storage ──
+	storageBackend, err := storage.New(storage.Config{
+		Driver:         cfg.Storage.Driver,
+		LocalDir:       cfg.Storage.LocalDir,
+		BaseURL:        cfg.Storage.BaseURL,
+		GCSBucket:      cfg.Storage.GCSBucket,
+		GCSCredentials: cfg.Storage.GCSCredentials,
+		MaxFileSize:    cfg.Storage.MaxFileSize,
+		AllowedMIMEs:   cfg.Storage.AllowedMIMEs,
+	})
+	if err != nil {
+		log.Fatalf("storage: %v", err)
+	}
 
 	// ── services ──
 	tokenSvc := service.NewTokenService(jwtIssuer, sessionRepo, cfg.JWT.RefreshTTL)
@@ -68,6 +111,17 @@ func main() {
 	passwordSvc := service.NewPasswordService(userRepo, sessionRepo, otpSvc, authSvc)
 	profileSvc := service.NewProfileService(userRepo, sessionRepo)
 	socialSvc := service.NewSocialService(userRepo, tokenSvc, cfg.OAuth)
+	brandSvc := brandservice.New(brandRepo, addressRepo)
+	productSvc := productservice.New(
+		productRepo, variantRepo, imageRepo,
+		categoryRepo, styleTagRepo,
+		storageBackend, cfg.Storage.AllowedMIMEs, cfg.Storage.MaxFileSize,
+	)
+	catalogRepo := productrepo.NewCatalogPG(pgPool)
+	catalogSvc := productservice.NewCatalog(catalogRepo, productRepo)
+	customerAddrSvc := customeraddrservice.New(customerAddrRepo)
+	wishlistSvc := wishlistservice.New(wishlistRepo, productRepo)
+	cartSvc := cartservice.New(cartRepo, variantRepo)
 
 	// ── handlers ──
 	deps := &handler.Deps{
@@ -78,19 +132,62 @@ func main() {
 		Profile:   handler.NewProfileHandler(profileSvc),
 		JWTIssuer: jwtIssuer,
 	}
+	brandDeps := &brandhandler.Deps{
+		Brand:   brandhandler.NewBrandHandler(brandSvc),
+		Address: brandhandler.NewAddressHandler(brandSvc),
+	}
+
+	brandProductHandler := producthandler.NewBrandProductHandler(productSvc)
+	catalogHandler := producthandler.NewCatalogHandler(catalogSvc, categoryRepo, styleTagRepo, brandRepo)
+	brandsPublicHandler := brandhandler.NewBrandsPublicHandler(brandSvc)
+	customerAddrHandler := customeraddrhandler.New(customerAddrSvc)
+	wishlistHandler := wishlisthandler.New(wishlistSvc)
+	cartHandler := carthandler.New(cartSvc)
 
 	// ── router ──
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(gin.Logger())
 
+	// Limit multipart form memory so large uploads spill to temp files rather
+	// than being held entirely in RAM. Per-file size enforcement stays in the
+	// service layer.
+	multipartLimit := cfg.Storage.MaxFileSize
+	if multipartLimit <= 0 {
+		multipartLimit = 4 << 20 // 4 MiB default
+	}
+	r.MaxMultipartMemory = multipartLimit
+
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
+
+	if cfg.Storage.Driver == "local" || cfg.Storage.Driver == "" {
+		r.Static("/uploads", cfg.Storage.LocalDir)
+	}
 
 	v1 := r.Group("/api/v1",
 		middleware.OptionalAuth(jwtIssuer),
 		middleware.RateLimit(rdb, cfg.Limit.RateLimitPerMin),
 	)
 	handler.Mount(v1, deps)
+
+	brandGroup := v1.Group("/brand/me",
+		middleware.RequireAuth(jwtIssuer),
+		middleware.RequireRole(authdomain.RoleBrand),
+		brandmw.BrandContext(brandRepo),
+	)
+	brandhandler.Mount(brandGroup, brandDeps)
+	producthandler.MountBrandProducts(brandGroup, brandProductHandler)
+
+	producthandler.MountCatalog(v1, catalogHandler)
+	brandhandler.MountBrandsPublic(v1, brandsPublicHandler)
+
+	customerGroup := v1.Group("/me",
+		middleware.RequireAuth(jwtIssuer),
+		middleware.RequireRole(authdomain.RoleCustomer),
+	)
+	customeraddrhandler.Mount(customerGroup, customerAddrHandler)
+	wishlisthandler.Mount(customerGroup, wishlistHandler)
+	carthandler.Mount(customerGroup, cartHandler)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.HTTP.Port,

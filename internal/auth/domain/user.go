@@ -28,14 +28,14 @@ func (u *User) HasPassword() bool { return u.PasswordHash != nil && *u.PasswordH
 func (u *User) IsActive() bool    { return u.Status == StatusActive && u.DeletedAt == nil }
 
 type RefreshSession struct {
-	ID         uuid.UUID
-	UserID     uuid.UUID
-	TokenHash  string
-	UserAgent  string
-	IP         string
-	ExpiresAt  time.Time
-	RevokedAt  *time.Time
-	CreatedAt  time.Time
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	TokenHash string
+	UserAgent string
+	IP        string
+	ExpiresAt time.Time
+	RevokedAt *time.Time
+	CreatedAt time.Time
 }
 
 type SocialAccount struct {

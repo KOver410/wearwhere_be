@@ -34,3 +34,9 @@ func Role(c *gin.Context) domain.Role {
 	}
 	return ""
 }
+
+// SetUserIDForTest is exported only for downstream test packages that need
+// to simulate the post-RequireAuth state without a real JWT. Not for prod use.
+func SetUserIDForTest(c *gin.Context, userID uuid.UUID) {
+	c.Set(ctxUserID, userID)
+}

@@ -2,10 +2,10 @@
 //
 // Apple's identity token is a JWT signed by one of a rotating set of RSA keys
 // published at https://appleid.apple.com/auth/keys. We:
-//   1. Fetch + cache the JWKs (15-min TTL).
-//   2. Look up the key matching the token's `kid` header.
-//   3. Verify the RS256 signature.
-//   4. Validate iss=https://appleid.apple.com, aud=<our clientID>, exp not past.
+//  1. Fetch + cache the JWKs (15-min TTL).
+//  2. Look up the key matching the token's `kid` header.
+//  3. Verify the RS256 signature.
+//  4. Validate iss=https://appleid.apple.com, aud=<our clientID>, exp not past.
 //
 // See https://developer.apple.com/documentation/sign_in_with_apple/sign_in_with_apple_rest_api/verifying_a_user
 package apple
@@ -26,18 +26,18 @@ import (
 )
 
 const (
-	jwksURL    = "https://appleid.apple.com/auth/keys"
-	issuerURL  = "https://appleid.apple.com"
-	cacheTTL   = 15 * time.Minute
+	jwksURL           = "https://appleid.apple.com/auth/keys"
+	issuerURL         = "https://appleid.apple.com"
+	cacheTTL          = 15 * time.Minute
 	httpClientTimeout = 5 * time.Second
 )
 
 // Claims is the subset of Apple's ID-token payload we care about.
 type Claims struct {
-	Sub           string `json:"sub"`
-	Email         string `json:"email,omitempty"`
-	EmailVerified any    `json:"email_verified,omitempty"` // string OR bool, depending on Apple's mood
-	IsPrivateEmail any   `json:"is_private_email,omitempty"`
+	Sub            string `json:"sub"`
+	Email          string `json:"email,omitempty"`
+	EmailVerified  any    `json:"email_verified,omitempty"` // string OR bool, depending on Apple's mood
+	IsPrivateEmail any    `json:"is_private_email,omitempty"`
 	jwt.RegisteredClaims
 }
 

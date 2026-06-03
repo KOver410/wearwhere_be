@@ -33,8 +33,9 @@ This is **Spec A of 2**. Spec B (separate doc/plan) covers the fulfillment lifec
 | Mode switch | `GOSHIP_MODE=mock\|sandbox\|production` | Same pattern as `PAYOS_MODE`; sandbox token present now |
 | Carrier selection | Customer chooses per brand; server **re-quotes** by chosen carrier at place-order | Never trust client-supplied fee; rate IDs expire fast so we key on carrier code, not rate ID |
 | Rate ID persistence | **Not stored** in Spec A | Goship rate IDs are short-lived (minutes); Spec B re-quotes at brand-confirm time. Store only `shipping_carrier` + `shipping_fee_vnd` (the charged fee) |
-| Weight model | Chargeable weight = `max(actual_g, volumetric_g)`, volumetric = `(L×W×H cm)/5000`, summed over `item.qty` | Vietnamese carrier standard (GHN/GHTK divisor 5000); large-marketplace best practice |
+| Weight model | We send **actual aggregated weight** (`Σ item.qty × weight_g`) **+ representative dimensions**; **Goship applies volumetric server-side** (divisor ~6000) and returns the chargeable fee | Confirmed from doc.goship.io: the `/rates` parcel takes `weight` + `width/height/length` and Goship computes `max(actual, volumetric)` itself — pre-computing client-side would double-apply and used the wrong divisor (5000 vs 6000) |
 | Missing weight/dims | Fallback `GOSHIP_DEFAULT_ITEM_WEIGHT_G` + default dims in config | Variants may not have weight yet; never block checkout on missing data |
+| Location code type | **TEXT** (`*string` in Go), e.g. district `"100100"`, city `"100000"` | Confirmed from doc: Goship location codes are numeric **strings**, not integers — TEXT preserves exact format |
 | Address validity | Codes required to quote Goship; incomplete address → `address_incomplete` warning + **block place-order** | Marketplaces enforce structured addresses; never silently mis-charge |
 | Legacy addresses (no codes) | Prompt customer to re-select via dropdowns at checkout; flat-rate is a configured fallback only, not a silent escape | Best practice: gate checkout on valid address |
 | `ShippingProvider` interface | Change `Calculate → Quote` returning `[]ShippingOption` | Multi-carrier choice needs multiple options; flat-rate adapts to a single synthetic option |
@@ -86,12 +87,12 @@ Touched existing packages: `internal/order/service/checkout_service.go` & `order
 ### 4.1 `customer_addresses` & `brand_addresses`
 ```sql
 ALTER TABLE customer_addresses
-  ADD COLUMN city_code     INT,
-  ADD COLUMN district_code INT,
-  ADD COLUMN ward_code     INT;
+  ADD COLUMN city_code     TEXT,
+  ADD COLUMN district_code TEXT,
+  ADD COLUMN ward_code     TEXT;
 -- same three columns on brand_addresses
 ```
-Nullable (legacy rows have none). New/updated addresses created via dropdown must supply all three; partial codes rejected at validation.
+Nullable (legacy rows have none). Codes are Goship numeric **strings** (e.g. `"100000"`). New/updated addresses created via dropdown must supply all three; partial codes rejected at validation.
 
 ### 4.2 `variants` — chargeable-weight inputs
 ```sql
@@ -110,26 +111,32 @@ ALTER TABLE sub_orders ADD COLUMN shipping_carrier TEXT;  -- e.g. 'ghn', 'ghtk',
 ```
 
 ### 4.4 `orders.shipping_address` JSONB snapshot
-`ShippingAddress` struct gains `city_code`, `district_code`, `ward_code` (snapshotted at place-order so Spec B can create the shipment from frozen data).
+`ShippingAddress` struct gains `city_code`, `district_code`, `ward_code` (all `*string`, snapshotted at place-order so Spec B can create the shipment from frozen data).
 
-## 5. Goship Client Contract (to confirm against sandbox)
+## 5. Goship Client Contract (confirmed against doc.goship.io)
 
-> Exact endpoint paths/field names pinned during implementation against the sandbox account — doc.goship.io was unreachable at design time. Shape below reflects Goship v2.
-
-- **Auth:** `Authorization: Bearer <GOSHIP_TOKEN>` (static token from connection settings).
-- **Locations:** `GET /cities`, `GET /cities/{cityCode}/districts`, `GET /districts/{districtCode}/wards` → `[]Location{Code, Name}`.
-- **Rates:** `POST /rates` with `{address_from:{district,city}, address_to:{district,city}, parcel:{weight_g, L,W,H}}` → `[]Rate{ID, Carrier, CarrierName, Service, TotalFeeVND, ExpectedDeliveryText}`.
+- **Base URL:** sandbox `https://sandbox.goship.io/api/v2`; production TBD (confirm with account).
+- **Auth:** `Authorization: Bearer <GOSHIP_TOKEN>`. Token obtained via `POST /login` (`{username, password, client_id, client_secret}` → `{access_token, expires_in}`), lifetime ~100 years (treat as static config). `POST /refresh_token` exists but optional. Spec A uses the static token only; `client_secret` is needed in Spec B for webhook HMAC verification.
+- **Locations:** `GET /cities`, `GET /cities/{cityCode}/districts`, `GET /districts/{districtCode}/wards` → `{data:[{id (string), name}]}`.
+- **Rates:** `POST /rates`:
+  ```json
+  {"shipment":{"address_from":{"district":"100100","city":"100000"},
+   "address_to":{"district":"100100","city":"100000"},
+   "parcel":{"cod":500000,"amount":500000,"width":10,"height":10,"length":10,"weight":750}}}
+  ```
+  Response `{code, status, data:[{id, carrier_name, carrier_logo, service, expected, cod_fee, total_fee, total_amount}]}`. `weight` is grams; `width/height/length` in cm; Goship applies volumetric (≈6000) and returns `total_fee`. `cod` = grand total for COD orders, `0` for PayOS-prepaid; `amount` = declared value (subtotal).
+- **Carrier codes:** `vtp, ems, vnp, ghtk, ghnv3, shopee, best, tikinow`. **GHN is `ghnv3`** (not `ghn`). Webhook payloads use `carrier_short_name` (e.g. `"ghn"`); the rate object's carrier-code field name (vs only `carrier_name`) must be confirmed at impl — if no short code is present, carrier selection keys on `carrier_name`.
 
 Client interface (Spec A subset):
 ```go
 type Client interface {
     Cities(ctx) ([]Location, error)
-    Districts(ctx, cityCode int) ([]Location, error)
-    Wards(ctx, districtCode int) ([]Location, error)
-    Rates(ctx, RateReq) ([]Rate, error)
+    Districts(ctx, cityCode string) ([]Location, error)
+    Wards(ctx, districtCode string) ([]Location, error)
+    Rates(ctx, RateReq) ([]Rate, error)  // RateReq carries string codes + weight/dims + cod/amount
 }
 ```
-Mock returns a fixed carrier set (ghn/ghtk/vtp) with fee = `base + perKg * ceil(weightKg)` so tests are deterministic.
+Mock returns a fixed carrier set (`ghnv3`/`ghtk`/`vtp`) with deterministic fees so tests are stable.
 
 ## 6. Flows
 
@@ -152,14 +159,16 @@ FE loads cascading dropdowns from `/api/v1/locations/*`, submits names **and** c
 ### 6.4 Fallback provider
 If `SHIPPING_PROVIDER=flat`, `Quote` returns one option `{carrier:"flat", amount: brands.shipping_flat_fee_vnd}`. Used for local dev or as an explicit configured degrade — never an automatic silent fallback when a Goship address is invalid.
 
-## 7. Chargeable Weight
+## 7. Parcel Weight & Dimensions
 
+Goship applies the volumetric calculation server-side (divisor ≈6000) from the `weight` + `width/height/length` we send, so we do **not** pre-compute chargeable weight. We aggregate the sub-order into one parcel:
 ```
-volumetric_g(item)  = (L_cm * W_cm * H_cm) / 5000 * 1000
-chargeable_g(item)  = max(actual_weight_g, volumetric_g)   // per unit
-parcel_g(sub_order) = Σ item.qty * chargeable_g(item)
+parcel_weight_g     = Σ item.qty * (variant.weight_g  ?? GOSHIP_DEFAULT_ITEM_WEIGHT_G)
+parcel_length_cm    = max(item.length_cm ?? default)      // representative box
+parcel_width_cm     = max(item.width_cm  ?? default)
+parcel_height_cm    = Σ (item.qty * (item.height_cm ?? default))   // stack height
 ```
-Missing field on a variant → substitute config defaults (`GOSHIP_DEFAULT_ITEM_WEIGHT_G`, default box dims). Divisor 5000 matches GHN/GHTK. Unit-tested in `weight_test.go`.
+Missing field on a variant → substitute config defaults (`GOSHIP_DEFAULT_*`). The `weight` package only **aggregates** actual weight + picks representative dimensions; the carrier-side volumetric adjustment is Goship's responsibility. Unit-tested in `weight_test.go`.
 
 ## 8. Configuration
 
@@ -176,7 +185,7 @@ GOSHIP_DEFAULT_HEIGHT_CM=10
 # Shipping selector
 SHIPPING_PROVIDER=goship            # goship | flat
 ```
-`GoshipConfig{Mode, Token, BaseURL, DefaultItemWeightG, DefaultDims}` validated at startup (token required unless mock). Wired in `cmd/api/main.go` alongside the existing shipping factory.
+`GoshipConfig{Mode, Token, BaseURL, DefaultItemWeightG, DefaultDims}` validated at startup (token required unless mock). Wired in `cmd/api/main.go` alongside the existing shipping factory. `GOSHIP_CLIENT_SECRET` (for webhook HMAC) and login/refresh-token support are deferred to Spec B — Spec A uses the static `GOSHIP_TOKEN` only.
 
 ## 9. Error Handling
 
@@ -197,6 +206,8 @@ Goship HTTP client uses a context timeout and returns typed errors; transient fa
 - **Real sandbox (`goship_real` tag):** `Cities/Districts/Wards` return data; `Rates` returns ≥1 carrier for a known HCMC→Hanoi route; skips if `GOSHIP_TOKEN` unset (mirrors `payos_real`).
 
 ## 11. Open Items Pinned at Implementation
-- Confirm exact Goship v2 endpoint paths, request/response field names, and whether token is static vs requires login/refresh (sandbox).
-- Confirm carrier code list returned by the sandbox account (drives mock fixture).
-- Confirm volumetric divisor per carrier (assume 5000; some use 6000) — make it a per-provider constant if it varies.
+- Confirmed from doc.goship.io: base URL, `/login`, `/cities|districts|wards`, `/rates` shapes, carrier codes, static ~100yr token. Remaining to verify against the live sandbox account:
+- Whether the `/rates` response object exposes a carrier **short code** field (e.g. `carrier`) in addition to `carrier_name`. If not, carrier selection keys on `carrier_name`.
+- Exact JSON envelope key for location/rate lists (`data`) and whether location `id` is returned as string or number (treat as string).
+- Production base URL (not published in docs).
+- Whether the sandbox enforces COD value rules affecting `total_fee` for `cod=0` (PayOS) vs `cod>0` (COD) orders.

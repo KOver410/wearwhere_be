@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace flat-rate shipping with real Goship multi-carrier rate quoting where the customer picks a carrier per brand at checkout, on a foundation of structured location codes and chargeable-weight.
+**Goal:** Replace flat-rate shipping with real Goship multi-carrier rate quoting where the customer picks a carrier per brand at checkout, on a foundation of structured location codes (string codes) and per-variant weight/dimensions (Goship applies the volumetric adjustment).
 
 **Architecture:** A new `internal/shipping/goship` client (interface + mock + HTTP + factory) mirrors the existing `internal/payment/payos` package. The `ShippingProvider` interface changes from single-fee `Calculate` to multi-option `Quote`. Checkout preview returns carrier options per brand; place-order re-quotes by the chosen carrier and stores the authoritative fee. Address tables gain `city_code/district_code/ward_code`; variants gain weight + dimensions.
 
@@ -39,7 +39,7 @@ internal/shipping/goship/                                         NEW (mirror in
   factory.go           NewFromConfig(mode)
 
 internal/shipping/weight/                                         NEW
-  weight.go            ChargeableGrams(items, defaults)
+  weight.go            Aggregate(items, defaults) -> Parcel (weight+dims; Goship applies volumetric)
   weight_test.go
 
 internal/shipping/domain/option.go                                NEW  ShippingOption
@@ -86,11 +86,12 @@ Expected: highest existing is `000026_*`. If higher numbers exist, renumber the 
 
 - [ ] **Step 2: Write `000027_add_location_codes_to_customer_addresses.up.sql`**
 
+Goship location codes are numeric **strings** (e.g. district `"100100"`, city `"100000"`) — use `TEXT`.
 ```sql
 ALTER TABLE customer_addresses
-  ADD COLUMN city_code     INT,
-  ADD COLUMN district_code INT,
-  ADD COLUMN ward_code     INT;
+  ADD COLUMN city_code     TEXT,
+  ADD COLUMN district_code TEXT,
+  ADD COLUMN ward_code     TEXT;
 ```
 
 `.down.sql`:
@@ -105,9 +106,9 @@ ALTER TABLE customer_addresses
 
 ```sql
 ALTER TABLE brand_addresses
-  ADD COLUMN city_code     INT,
-  ADD COLUMN district_code INT,
-  ADD COLUMN ward_code     INT;
+  ADD COLUMN city_code     TEXT,
+  ADD COLUMN district_code TEXT,
+  ADD COLUMN ward_code     TEXT;
 ```
 
 `.down.sql`:
@@ -174,29 +175,29 @@ git commit -m "feat(db): location codes on addresses, dimensions on variants, sh
 
 - [ ] **Step 1: Add fields to `CustomerAddress`**
 
-In `internal/customeraddr/domain/address.go`, add after `City string`:
+In `internal/customeraddr/domain/address.go`, add after `City string` (Goship codes are strings):
 ```go
-	CityCode     *int
-	DistrictCode *int
-	WardCode     *int
+	CityCode     *string
+	DistrictCode *string
+	WardCode     *string
 ```
 
-- [ ] **Step 2: Add the same three `*int` fields to `BrandAddress`** in `internal/brand/domain/brand.go` (after `City string`).
+- [ ] **Step 2: Add the same three `*string` fields to `BrandAddress`** in `internal/brand/domain/brand.go` (after `City string`).
 
 - [ ] **Step 3: Add fields to `ShippingAddress`**
 
 In `internal/order/domain/order.go`:
 ```go
 type ShippingAddress struct {
-	Recipient    string `json:"recipient"`
-	Phone        string `json:"phone"`
-	Line1        string `json:"line1"`
-	Ward         string `json:"ward"`
-	District     string `json:"district"`
-	City         string `json:"city"`
-	CityCode     *int   `json:"city_code,omitempty"`
-	DistrictCode *int   `json:"district_code,omitempty"`
-	WardCode     *int   `json:"ward_code,omitempty"`
+	Recipient    string  `json:"recipient"`
+	Phone        string  `json:"phone"`
+	Line1        string  `json:"line1"`
+	Ward         string  `json:"ward"`
+	District     string  `json:"district"`
+	City         string  `json:"city"`
+	CityCode     *string `json:"city_code,omitempty"`
+	DistrictCode *string `json:"district_code,omitempty"`
+	WardCode     *string `json:"ward_code,omitempty"`
 }
 ```
 
@@ -212,7 +213,7 @@ Locate the struct (Step note above). Add:
 
 - [ ] **Step 5: Update repos to persist/read the new columns**
 
-For each repo (customer address, brand address, product variant): add the new columns to INSERT column lists + `$n` placeholders + arg slices, to UPDATE statements, and to every `SELECT ... ` + `rows.Scan(...)` / `row.Scan(...)` that hydrates the struct. Use `&a.CityCode` etc. (pgx scans SQL `INT NULL` into `*int`).
+For each repo (customer address, brand address, product variant): add the new columns to INSERT column lists + `$n` placeholders + arg slices, to UPDATE statements, and to every `SELECT ... ` + `rows.Scan(...)` / `row.Scan(...)` that hydrates the struct. Use `&a.CityCode` etc. (pgx scans `TEXT NULL` → `*string` for the address codes; `INT NULL` → `*int` for the variant dimensions).
 
 - [ ] **Step 6: Build to verify scans compile**
 
@@ -359,23 +360,27 @@ var (
 )
 
 // Location is a city, district, or ward as returned by Goship.
+// Goship codes are numeric strings, e.g. "100000".
 type Location struct {
-	Code int    `json:"code"`
+	Code string `json:"code"`
 	Name string `json:"name"`
 }
 
 // Address is one endpoint of a shipment (sender or receiver).
 type Address struct {
-	DistrictCode int
-	CityCode     int
+	DistrictCode string
+	CityCode     string
 }
 
-// Parcel describes the package being shipped.
+// Parcel describes the package being shipped. We send actual weight + dims;
+// Goship applies volumetric weight (divisor ~6000) server-side.
 type Parcel struct {
-	WeightG  int
-	LengthCM int
-	WidthCM  int
-	HeightCM int
+	WeightG   int
+	LengthCM  int
+	WidthCM   int
+	HeightCM  int
+	CODVND    int64 // amount the carrier collects on delivery (0 for prepaid/PayOS)
+	AmountVND int64 // declared goods value
 }
 
 type RateReq struct {
@@ -387,17 +392,17 @@ type RateReq struct {
 // Rate is one carrier option returned by Goship.
 type Rate struct {
 	ID          string // Goship rate id (short-lived; not persisted in Spec A)
-	Carrier     string // carrier code, e.g. "ghn", "ghtk", "vtp"
+	Carrier     string // carrier code (e.g. "ghnv3"); falls back to CarrierName if Goship omits a code
 	CarrierName string
 	Service     string
 	FeeVND      int64
-	ETA         string // human-readable expected delivery
+	ETA         string // human-readable expected delivery ("expected")
 }
 
 type Client interface {
 	Cities(ctx context.Context) ([]Location, error)
-	Districts(ctx context.Context, cityCode int) ([]Location, error)
-	Wards(ctx context.Context, districtCode int) ([]Location, error)
+	Districts(ctx context.Context, cityCode string) ([]Location, error)
+	Wards(ctx context.Context, districtCode string) ([]Location, error)
 	Rates(ctx context.Context, r RateReq) ([]Rate, error)
 }
 ```
@@ -435,8 +440,8 @@ import (
 func TestMock_Rates_DeterministicByWeight(t *testing.T) {
 	m := NewMockClient()
 	got, err := m.Rates(context.Background(), RateReq{
-		From:   Address{DistrictCode: 1, CityCode: 1},
-		To:     Address{DistrictCode: 2, CityCode: 2},
+		From:   Address{DistrictCode: "100100", CityCode: "100000"},
+		To:     Address{DistrictCode: "200100", CityCode: "200000"},
 		Parcel: Parcel{WeightG: 1500},
 	})
 	if err != nil {
@@ -445,10 +450,10 @@ func TestMock_Rates_DeterministicByWeight(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("want 3 carriers, got %d", len(got))
 	}
-	// ghn base 15000 + 5000/kg * ceil(1.5kg=2) = 25000
+	// ghnv3 base 15000 + 5000/kg * ceil(1.5kg=2) = 25000
 	for _, r := range got {
-		if r.Carrier == "ghn" && r.FeeVND != 25000 {
-			t.Errorf("ghn fee = %d, want 25000", r.FeeVND)
+		if r.Carrier == "ghnv3" && r.FeeVND != 25000 {
+			t.Errorf("ghnv3 fee = %d, want 25000", r.FeeVND)
 		}
 		if r.ID == "" || r.CarrierName == "" {
 			t.Errorf("rate missing id/name: %+v", r)
@@ -486,15 +491,15 @@ type MockClient struct{}
 func NewMockClient() *MockClient { return &MockClient{} }
 
 func (m *MockClient) Cities(_ context.Context) ([]Location, error) {
-	return []Location{{Code: 1, Name: "Hồ Chí Minh"}, {Code: 2, Name: "Hà Nội"}}, nil
+	return []Location{{Code: "100000", Name: "Hồ Chí Minh"}, {Code: "200000", Name: "Hà Nội"}}, nil
 }
 
-func (m *MockClient) Districts(_ context.Context, cityCode int) ([]Location, error) {
-	return []Location{{Code: cityCode*100 + 1, Name: "Quận 1"}, {Code: cityCode*100 + 2, Name: "Quận 2"}}, nil
+func (m *MockClient) Districts(_ context.Context, cityCode string) ([]Location, error) {
+	return []Location{{Code: cityCode + "100", Name: "Quận 1"}, {Code: cityCode + "200", Name: "Quận 2"}}, nil
 }
 
-func (m *MockClient) Wards(_ context.Context, districtCode int) ([]Location, error) {
-	return []Location{{Code: districtCode*100 + 1, Name: "Phường 1"}}, nil
+func (m *MockClient) Wards(_ context.Context, districtCode string) ([]Location, error) {
+	return []Location{{Code: districtCode + "01", Name: "Phường 1"}}, nil
 }
 
 func (m *MockClient) Rates(_ context.Context, r RateReq) ([]Rate, error) {
@@ -506,7 +511,7 @@ func (m *MockClient) Rates(_ context.Context, r RateReq) ([]Rate, error) {
 		code, name string
 		base, perKg int64
 	}{
-		{"ghn", "Giao Hàng Nhanh", 15000, 5000},
+		{"ghnv3", "Giao Hàng Nhanh", 15000, 5000},
 		{"ghtk", "Giao Hàng Tiết Kiệm", 12000, 4000},
 		{"vtp", "Viettel Post", 18000, 6000},
 	}
@@ -560,7 +565,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"time"
 )
 
@@ -607,11 +611,13 @@ func (c *HTTPClient) do(ctx context.Context, method, path string, body any, out 
 	return nil
 }
 
-// locationEnvelope matches Goship's { "data": [ { "id": 1, "name": "..." } ] }.
+// locationEnvelope matches Goship's { "data": [ { "id": "100000", "name": "..." } ] }.
+// id may arrive as a JSON string or number depending on the endpoint, so decode
+// it as json.Number and stringify.
 type locationEnvelope struct {
 	Data []struct {
-		ID   int    `json:"id"`
-		Name string `json:"name"`
+		ID   json.Number `json:"id"`
+		Name string      `json:"name"`
 	} `json:"data"`
 }
 
@@ -622,7 +628,7 @@ func (c *HTTPClient) locations(ctx context.Context, path string) ([]Location, er
 	}
 	out := make([]Location, 0, len(env.Data))
 	for _, d := range env.Data {
-		out = append(out, Location{Code: d.ID, Name: d.Name})
+		out = append(out, Location{Code: d.ID.String(), Name: d.Name})
 	}
 	return out, nil
 }
@@ -631,12 +637,12 @@ func (c *HTTPClient) Cities(ctx context.Context) ([]Location, error) {
 	return c.locations(ctx, "/cities")
 }
 
-func (c *HTTPClient) Districts(ctx context.Context, cityCode int) ([]Location, error) {
-	return c.locations(ctx, "/cities/"+strconv.Itoa(cityCode)+"/districts")
+func (c *HTTPClient) Districts(ctx context.Context, cityCode string) ([]Location, error) {
+	return c.locations(ctx, "/cities/"+cityCode+"/districts")
 }
 
-func (c *HTTPClient) Wards(ctx context.Context, districtCode int) ([]Location, error) {
-	return c.locations(ctx, "/districts/"+strconv.Itoa(districtCode)+"/wards")
+func (c *HTTPClient) Wards(ctx context.Context, districtCode string) ([]Location, error) {
+	return c.locations(ctx, "/districts/"+districtCode+"/wards")
 }
 
 func (c *HTTPClient) Rates(ctx context.Context, r RateReq) ([]Rate, error) {
@@ -645,6 +651,8 @@ func (c *HTTPClient) Rates(ctx context.Context, r RateReq) ([]Rate, error) {
 			"address_from": map[string]any{"district": r.From.DistrictCode, "city": r.From.CityCode},
 			"address_to":   map[string]any{"district": r.To.DistrictCode, "city": r.To.CityCode},
 			"parcel": map[string]any{
+				"cod":    r.Parcel.CODVND,
+				"amount": r.Parcel.AmountVND,
 				"weight": r.Parcel.WeightG,
 				"length": r.Parcel.LengthCM,
 				"width":  r.Parcel.WidthCM,
@@ -654,12 +662,12 @@ func (c *HTTPClient) Rates(ctx context.Context, r RateReq) ([]Rate, error) {
 	}
 	var env struct {
 		Data []struct {
-			ID           string `json:"id"`
-			Carrier      string `json:"carrier"`
-			CarrierName  string `json:"carrier_name"`
-			Service      string `json:"service"`
-			TotalFee     int64  `json:"total_fee"`
-			ExpectedTime string `json:"expected"`
+			ID          string `json:"id"`
+			Carrier     string `json:"carrier"`      // may be absent; see fallback below
+			CarrierName string `json:"carrier_name"`
+			Service     string `json:"service"`
+			TotalFee    int64  `json:"total_fee"`
+			Expected    string `json:"expected"`
 		} `json:"data"`
 	}
 	if err := c.do(ctx, http.MethodPost, "/rates", body, &env); err != nil {
@@ -667,9 +675,15 @@ func (c *HTTPClient) Rates(ctx context.Context, r RateReq) ([]Rate, error) {
 	}
 	out := make([]Rate, 0, len(env.Data))
 	for _, d := range env.Data {
+		carrier := d.Carrier
+		if carrier == "" {
+			// Goship's rate object may not expose a short code — fall back to the
+			// display name so preview and place-order key selection consistently.
+			carrier = d.CarrierName
+		}
 		out = append(out, Rate{
-			ID: d.ID, Carrier: d.Carrier, CarrierName: d.CarrierName,
-			Service: d.Service, FeeVND: d.TotalFee, ETA: d.ExpectedTime,
+			ID: d.ID, Carrier: carrier, CarrierName: d.CarrierName,
+			Service: d.Service, FeeVND: d.TotalFee, ETA: d.Expected,
 		})
 	}
 	return out, nil
@@ -744,31 +758,23 @@ func TestRealGoship_Cities(t *testing.T) {
 func TestRealGoship_Rates(t *testing.T) {
 	c := realClient(t)
 	// Pick two real district/city codes discovered via Cities/Districts in the sandbox.
-	from := Address{DistrictCode: intEnv("GOSHIP_TEST_FROM_DISTRICT"), CityCode: intEnv("GOSHIP_TEST_FROM_CITY")}
-	to := Address{DistrictCode: intEnv("GOSHIP_TEST_TO_DISTRICT"), CityCode: intEnv("GOSHIP_TEST_TO_CITY")}
-	if from.DistrictCode == 0 || to.DistrictCode == 0 {
+	from := Address{DistrictCode: os.Getenv("GOSHIP_TEST_FROM_DISTRICT"), CityCode: os.Getenv("GOSHIP_TEST_FROM_CITY")}
+	to := Address{DistrictCode: os.Getenv("GOSHIP_TEST_TO_DISTRICT"), CityCode: os.Getenv("GOSHIP_TEST_TO_CITY")}
+	if from.DistrictCode == "" || to.DistrictCode == "" {
 		t.Skip("set GOSHIP_TEST_FROM_*/TO_* district+city codes to run rates test")
 	}
-	rates, err := c.Rates(context.Background(), RateReq{From: from, To: to, Parcel: Parcel{WeightG: 1000, LengthCM: 20, WidthCM: 15, HeightCM: 10}})
+	rates, err := c.Rates(context.Background(), RateReq{From: from, To: to, Parcel: Parcel{WeightG: 1000, LengthCM: 20, WidthCM: 15, HeightCM: 10, AmountVND: 500000}})
 	if err != nil {
 		t.Fatalf("Rates: %v", err)
 	}
 	if len(rates) == 0 {
 		t.Fatal("expected at least one carrier rate")
 	}
-	t.Logf("got %d rates; first=%+v", len(rates), rates[0])
-}
-
-func intEnv(k string) int {
-	v := os.Getenv(k)
-	n := 0
-	for _, ch := range v {
-		if ch < '0' || ch > '9' {
-			return 0
-		}
-		n = n*10 + int(ch-'0')
+	// Logs the carrier code/name list — used to confirm whether a short code is
+	// present and to align the mock fixture (Task 17).
+	for _, r := range rates {
+		t.Logf("rate id=%s carrier=%q name=%q fee=%d eta=%q", r.ID, r.Carrier, r.CarrierName, r.FeeVND, r.ETA)
 	}
-	return n
 }
 ```
 
@@ -789,7 +795,9 @@ git commit -m "feat(goship): HTTP client + factory + gated sandbox integration t
 
 ## Phase 4 — Chargeable Weight
 
-### Task 7: weight.ChargeableGrams
+### Task 7: weight.Aggregate (parcel builder)
+
+Goship applies volumetric weight server-side from the `weight` + `width/height/length` we send (divisor ≈6000), so this package only **aggregates** a sub-order's items into one parcel — it does NOT pre-compute chargeable weight.
 
 **Files:**
 - Create: `internal/shipping/weight/weight.go`
@@ -802,56 +810,48 @@ package weight
 
 import "testing"
 
-func TestChargeableGrams(t *testing.T) {
+func TestAggregate(t *testing.T) {
 	d := Defaults{WeightG: 500, LengthCM: 20, WidthCM: 15, HeightCM: 10}
 	ip := func(v int) *int { return &v }
 
-	tests := []struct {
-		name string
-		items []Item
-		want int
-	}{
-		{
-			name: "actual heavier than volumetric",
-			// 2000g actual vs (20*15*10)/5000*1000=600g volumetric -> 2000, qty 1
-			items: []Item{{Qty: 1, WeightG: ip(2000), LengthCM: ip(20), WidthCM: ip(15), HeightCM: ip(10)}},
-			want:  2000,
-		},
-		{
-			name: "volumetric heavier than actual",
-			// 100g actual vs (50*40*30)/5000*1000=12000g volumetric -> 12000
-			items: []Item{{Qty: 1, WeightG: ip(100), LengthCM: ip(50), WidthCM: ip(40), HeightCM: ip(30)}},
-			want:  12000,
-		},
-		{
-			name: "missing fields fall back to defaults, qty multiplies",
-			// nil -> defaults: actual 500 vs vol (20*15*10)/5000*1000=600 -> 600; qty 3 -> 1800
-			items: []Item{{Qty: 3}},
-			want:  1800,
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := ChargeableGrams(tc.items, d); got != tc.want {
-				t.Errorf("ChargeableGrams = %d, want %d", got, tc.want)
-			}
-		})
-	}
+	t.Run("explicit fields: weight sums by qty, L/W take max, H stacks", func(t *testing.T) {
+		// qty2 weight300 L30 W25 H5  -> weight 600, L 30, W 25, H 10
+		got := Aggregate([]Item{{Qty: 2, WeightG: ip(300), LengthCM: ip(30), WidthCM: ip(25), HeightCM: ip(5)}}, d)
+		if got.WeightG != 600 || got.LengthCM != 30 || got.WidthCM != 25 || got.HeightCM != 10 {
+			t.Fatalf("got %+v", got)
+		}
+	})
+
+	t.Run("missing fields fall back to defaults", func(t *testing.T) {
+		// qty3 nil -> weight 1500, L20 W15 H 3*10=30
+		got := Aggregate([]Item{{Qty: 3}}, d)
+		if got.WeightG != 1500 || got.LengthCM != 20 || got.WidthCM != 15 || got.HeightCM != 30 {
+			t.Fatalf("got %+v", got)
+		}
+	})
+
+	t.Run("multiple items: max footprint, summed weight + stacked height", func(t *testing.T) {
+		// item A qty1 w200 L10 W10 H4 ; item B qty1 w800 L40 W30 H6
+		got := Aggregate([]Item{
+			{Qty: 1, WeightG: ip(200), LengthCM: ip(10), WidthCM: ip(10), HeightCM: ip(4)},
+			{Qty: 1, WeightG: ip(800), LengthCM: ip(40), WidthCM: ip(30), HeightCM: ip(6)},
+		}, d)
+		if got.WeightG != 1000 || got.LengthCM != 40 || got.WidthCM != 30 || got.HeightCM != 10 {
+			t.Fatalf("got %+v", got)
+		}
+	})
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./internal/shipping/weight/ -v`
-Expected: FAIL — undefined `ChargeableGrams`, `Item`, `Defaults`.
+Expected: FAIL — undefined `Aggregate`, `Item`, `Defaults`, `Parcel`.
 
 - [ ] **Step 3: Write `weight.go`**
 
 ```go
 package weight
-
-// volumetricDivisor is the GHN/GHTK standard (cm^3 per kg).
-const volumetricDivisor = 5000
 
 type Defaults struct {
 	WeightG, LengthCM, WidthCM, HeightCM int
@@ -866,6 +866,15 @@ type Item struct {
 	HeightCM *int
 }
 
+// Parcel is the aggregated package sent to the carrier. Goship applies the
+// volumetric adjustment itself, so these are actual aggregated values.
+type Parcel struct {
+	WeightG  int
+	LengthCM int
+	WidthCM  int
+	HeightCM int
+}
+
 func or(p *int, def int) int {
 	if p != nil && *p > 0 {
 		return *p
@@ -873,35 +882,34 @@ func or(p *int, def int) int {
 	return def
 }
 
-// ChargeableGrams returns Σ qty * max(actual, volumetric) per unit.
-func ChargeableGrams(items []Item, d Defaults) int {
-	total := 0
+// Aggregate combines a sub-order's items into one parcel: weight sums by qty,
+// length/width take the max footprint, height stacks (Σ qty*height).
+func Aggregate(items []Item, d Defaults) Parcel {
+	var p Parcel
 	for _, it := range items {
-		actual := or(it.WeightG, d.WeightG)
-		l := or(it.LengthCM, d.LengthCM)
-		w := or(it.WidthCM, d.WidthCM)
-		h := or(it.HeightCM, d.HeightCM)
-		volumetric := (l * w * h) / volumetricDivisor * 1000 // cm^3 -> kg -> g
-		per := actual
-		if volumetric > per {
-			per = volumetric
+		p.WeightG += it.Qty * or(it.WeightG, d.WeightG)
+		if l := or(it.LengthCM, d.LengthCM); l > p.LengthCM {
+			p.LengthCM = l
 		}
-		total += it.Qty * per
+		if w := or(it.WidthCM, d.WidthCM); w > p.WidthCM {
+			p.WidthCM = w
+		}
+		p.HeightCM += it.Qty * or(it.HeightCM, d.HeightCM)
 	}
-	return total
+	return p
 }
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `go test ./internal/shipping/weight/ -v`
-Expected: PASS (all three cases).
+Expected: PASS (all three subtests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add internal/shipping/weight/
-git commit -m "feat(shipping): chargeable-weight calculator (max actual/volumetric)"
+git commit -m "feat(shipping): parcel aggregator (weight/dims); Goship applies volumetric"
 ```
 
 ---
@@ -946,11 +954,13 @@ type CalcItem struct {
 }
 
 type CalcReq struct {
-	BrandID      uuid.UUID
-	ToAddress    ShippingAddress
-	ToCityCode   *int
-	ToDistrict   *int
-	Items        []CalcItem
+	BrandID    uuid.UUID
+	ToAddress  ShippingAddress
+	ToCityCode *string
+	ToDistrict *string
+	CODVND     int64 // carrier-collected amount (grand total for COD, 0 for PayOS)
+	AmountVND  int64 // declared goods value (sub-order subtotal)
+	Items      []CalcItem
 }
 
 type ShippingProvider interface {
@@ -1060,43 +1070,44 @@ import (
 type stubGoship struct{ rates []goship.Rate }
 
 func (s stubGoship) Cities(context.Context) ([]goship.Location, error) { return nil, nil }
-func (s stubGoship) Districts(context.Context, int) ([]goship.Location, error) { return nil, nil }
-func (s stubGoship) Wards(context.Context, int) ([]goship.Location, error) { return nil, nil }
+func (s stubGoship) Districts(context.Context, string) ([]goship.Location, error) { return nil, nil }
+func (s stubGoship) Wards(context.Context, string) ([]goship.Location, error) { return nil, nil }
 func (s stubGoship) Rates(context.Context, goship.RateReq) ([]goship.Rate, error) {
 	return s.rates, nil
 }
 
-type stubPickup struct{ city, district int; err error }
+type stubPickup struct{ city, district string; err error }
 
-func (s stubPickup) PrimaryAddressCodes(_ context.Context, _ uuid.UUID) (city, district int, err error) {
+func (s stubPickup) PrimaryAddressCodes(_ context.Context, _ uuid.UUID) (city, district string, err error) {
 	return s.city, s.district, s.err
 }
 
+func sp(s string) *string { return &s }
+
 func TestGoshipProvider_Quote_MapsRates(t *testing.T) {
 	cli := stubGoship{rates: []goship.Rate{
-		{ID: "r1", Carrier: "ghn", CarrierName: "GHN", FeeVND: 25000, ETA: "2 ngày"},
+		{ID: "r1", Carrier: "ghnv3", CarrierName: "GHN", FeeVND: 25000, ETA: "2 ngày"},
 		{ID: "r2", Carrier: "ghtk", CarrierName: "GHTK", FeeVND: 20000, ETA: "3 ngày"},
 	}}
 	d := weight.Defaults{WeightG: 500, LengthCM: 20, WidthCM: 15, HeightCM: 10}
-	p := NewGoshipProvider(cli, stubPickup{city: 1, district: 11}, d)
+	p := NewGoshipProvider(cli, stubPickup{city: "100000", district: "100100"}, d)
 
-	toCity, toDist := 2, 22
 	opts, err := p.Quote(context.Background(), CalcReq{
 		BrandID:    uuid.New(),
-		ToCityCode: &toCity,
-		ToDistrict: &toDist,
+		ToCityCode: sp("200000"),
+		ToDistrict: sp("200100"),
 		Items:      []CalcItem{{Qty: 1}},
 	})
 	if err != nil {
 		t.Fatalf("Quote: %v", err)
 	}
-	if len(opts) != 2 || opts[0].Carrier != "ghn" || opts[0].AmountVND != 25000 {
+	if len(opts) != 2 || opts[0].Carrier != "ghnv3" || opts[0].AmountVND != 25000 {
 		t.Fatalf("unexpected options: %+v", opts)
 	}
 }
 
 func TestGoshipProvider_Quote_MissingDestCodes(t *testing.T) {
-	p := NewGoshipProvider(stubGoship{}, stubPickup{city: 1, district: 11}, weight.Defaults{})
+	p := NewGoshipProvider(stubGoship{}, stubPickup{city: "100000", district: "100100"}, weight.Defaults{})
 	_, err := p.Quote(context.Background(), CalcReq{BrandID: uuid.New(), Items: []CalcItem{{Qty: 1}}})
 	if err == nil {
 		t.Fatal("expected error when destination codes are missing")
@@ -1131,9 +1142,9 @@ var ErrDestinationIncomplete = errors.New("shipping: destination missing city/di
 // ErrPickupIncomplete is returned when the brand's pickup address lacks codes.
 var ErrPickupIncomplete = errors.New("shipping: brand pickup address missing city/district code")
 
-// PickupRepo returns the brand's primary pickup address location codes.
+// PickupRepo returns the brand's primary pickup address location codes (Goship string codes).
 type PickupRepo interface {
-	PrimaryAddressCodes(ctx context.Context, brandID uuid.UUID) (cityCode, districtCode int, err error)
+	PrimaryAddressCodes(ctx context.Context, brandID uuid.UUID) (cityCode, districtCode string, err error)
 }
 
 // GoshipDeps groups the goship provider's collaborators for the factory.
@@ -1161,7 +1172,7 @@ func (p *GoshipProvider) Quote(ctx context.Context, r CalcReq) ([]shippingdomain
 	if err != nil {
 		return nil, err
 	}
-	if fromCity == 0 || fromDist == 0 {
+	if fromCity == "" || fromDist == "" {
 		return nil, ErrPickupIncomplete
 	}
 
@@ -1172,12 +1183,15 @@ func (p *GoshipProvider) Quote(ctx context.Context, r CalcReq) ([]shippingdomain
 			LengthCM: it.LengthCM, WidthCM: it.WidthCM, HeightCM: it.HeightCM,
 		})
 	}
-	grams := weight.ChargeableGrams(wItems, p.defaults)
+	parcel := weight.Aggregate(wItems, p.defaults)
 
 	rates, err := p.client.Rates(ctx, goship.RateReq{
-		From:   goship.Address{CityCode: fromCity, DistrictCode: fromDist},
-		To:     goship.Address{CityCode: *r.ToCityCode, DistrictCode: *r.ToDistrict},
-		Parcel: goship.Parcel{WeightG: grams, LengthCM: p.defaults.LengthCM, WidthCM: p.defaults.WidthCM, HeightCM: p.defaults.HeightCM},
+		From: goship.Address{CityCode: fromCity, DistrictCode: fromDist},
+		To:   goship.Address{CityCode: *r.ToCityCode, DistrictCode: *r.ToDistrict},
+		Parcel: goship.Parcel{
+			WeightG: parcel.WeightG, LengthCM: parcel.LengthCM, WidthCM: parcel.WidthCM, HeightCM: parcel.HeightCM,
+			CODVND: r.CODVND, AmountVND: r.AmountVND,
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -1197,16 +1211,16 @@ func (p *GoshipProvider) Quote(ctx context.Context, r CalcReq) ([]shippingdomain
 
 In the brand address repo (search: `grep -rln "brand_addresses" internal/brand`), add:
 ```go
-func (r *BrandAddressPG) PrimaryAddressCodes(ctx context.Context, brandID uuid.UUID) (int, int, error) {
-	var city, district *int
+func (r *BrandAddressPG) PrimaryAddressCodes(ctx context.Context, brandID uuid.UUID) (string, string, error) {
+	var city, district *string
 	err := r.pool.QueryRow(ctx,
 		`SELECT city_code, district_code FROM brand_addresses
 		  WHERE brand_id = $1 AND is_primary = TRUE AND deleted_at IS NULL
 		  LIMIT 1`, brandID).Scan(&city, &district)
 	if err != nil {
-		return 0, 0, err
+		return "", "", err
 	}
-	c, d := 0, 0
+	c, d := "", ""
 	if city != nil { c = *city }
 	if district != nil { d = *district }
 	return c, d, nil
@@ -1254,10 +1268,10 @@ type countingClient struct{ calls atomic.Int64 }
 
 func (c *countingClient) Cities(context.Context) ([]goship.Location, error) {
 	c.calls.Add(1)
-	return []goship.Location{{Code: 1, Name: "HCM"}}, nil
+	return []goship.Location{{Code: "100000", Name: "HCM"}}, nil
 }
-func (c *countingClient) Districts(context.Context, int) ([]goship.Location, error) { return nil, nil }
-func (c *countingClient) Wards(context.Context, int) ([]goship.Location, error)     { return nil, nil }
+func (c *countingClient) Districts(context.Context, string) ([]goship.Location, error) { return nil, nil }
+func (c *countingClient) Wards(context.Context, string) ([]goship.Location, error)     { return nil, nil }
 func (c *countingClient) Rates(context.Context, goship.RateReq) ([]goship.Rate, error) { return nil, nil }
 
 func TestService_Cities_CachedWithinTTL(t *testing.T) {
@@ -1286,7 +1300,6 @@ package location
 
 import (
 	"context"
-	"strconv"
 	"sync"
 	"time"
 
@@ -1331,14 +1344,14 @@ func (s *Service) Cities(ctx context.Context) ([]goship.Location, error) {
 	return s.get(ctx, "cities", s.client.Cities)
 }
 
-func (s *Service) Districts(ctx context.Context, cityCode int) ([]goship.Location, error) {
-	return s.get(ctx, "d:"+strconv.Itoa(cityCode), func(c context.Context) ([]goship.Location, error) {
+func (s *Service) Districts(ctx context.Context, cityCode string) ([]goship.Location, error) {
+	return s.get(ctx, "d:"+cityCode, func(c context.Context) ([]goship.Location, error) {
 		return s.client.Districts(c, cityCode)
 	})
 }
 
-func (s *Service) Wards(ctx context.Context, districtCode int) ([]goship.Location, error) {
-	return s.get(ctx, "w:"+strconv.Itoa(districtCode), func(c context.Context) ([]goship.Location, error) {
+func (s *Service) Wards(ctx context.Context, districtCode string) ([]goship.Location, error) {
+	return s.get(ctx, "w:"+districtCode, func(c context.Context) ([]goship.Location, error) {
 		return s.client.Wards(c, districtCode)
 	})
 }
@@ -1374,7 +1387,6 @@ package location
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -1393,9 +1405,9 @@ func (h *Handler) Cities(c *gin.Context) {
 }
 
 func (h *Handler) Districts(c *gin.Context) {
-	code, err := strconv.Atoi(c.Param("city_code"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid city_code"})
+	code := c.Param("city_code")
+	if code == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing city_code"})
 		return
 	}
 	out, err := h.svc.Districts(c.Request.Context(), code)
@@ -1407,9 +1419,9 @@ func (h *Handler) Districts(c *gin.Context) {
 }
 
 func (h *Handler) Wards(c *gin.Context) {
-	code, err := strconv.Atoi(c.Param("district_code"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid district_code"})
+	code := c.Param("district_code")
+	if code == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing district_code"})
 		return
 	}
 	out, err := h.svc.Wards(c.Request.Context(), code)
@@ -1532,7 +1544,7 @@ func (s stubProvider) Quote(context.Context, provider.CalcReq) ([]shippingdomain
 func TestPreview_ReturnsCarrierOptions(t *testing.T) {
 	// address WITH codes (city_code/district_code set on the fake CustomerAddress)
 	sp := stubProvider{opts: []shippingdomain.ShippingOption{
-		{Carrier: "ghn", CarrierName: "GHN", AmountVND: 25000, ETA: "2 ngày"},
+		{Carrier: "ghnv3", CarrierName: "GHN", AmountVND: 25000, ETA: "2 ngày"},
 		{Carrier: "ghtk", CarrierName: "GHTK", AmountVND: 20000, ETA: "3 ngày"},
 	}}
 	svc := NewCheckoutService(fakeCart, fakeAddrWithCodes, sp)
@@ -1576,6 +1588,8 @@ In the per-brand loop, when incomplete skip the provider call and leave options 
 				ToAddress:  toShippingProviderAddr(shipAddr),
 				ToCityCode: addr.CityCode,
 				ToDistrict: addr.DistrictCode,
+				CODVND:     0,          // preview: payment method not chosen yet — estimate as prepaid
+				AmountVND:  g.subtotal, // declared goods value
 				Items:      toCalcItems(g.items), // map preview items -> provider.CalcItem (qty + variant dims)
 			})
 			if err != nil {
@@ -1630,7 +1644,7 @@ In `order.go`, add `ShippingCarrier *string` and `ShippingProvider *string` to `
 
 - [ ] **Step 2: Write the failing integration test**
 
-In `order_service_test.go` (build tag `integration`), add a case: seed a brand pickup address with codes + a customer address with codes, place an order with `ShippingSelections: [{BrandID, Carrier: "ghn"}]` against the **mock** goship provider, assert the persisted sub-order has `shipping_carrier = 'ghn'` and `shipping_fee_vnd` equal to the mock's ghn fee; and a case where an unknown carrier yields `ErrCarrierUnavailable`.
+In `order_service_test.go` (build tag `integration`), add a case: seed a brand pickup address with codes + a customer address with codes, place an order with `ShippingSelections: [{BrandID, Carrier: "ghnv3"}]` against the **mock** goship provider (the mock returns carriers `ghnv3`/`ghtk`/`vtp`), assert the persisted sub-order has `shipping_carrier = 'ghnv3'` and `shipping_fee_vnd` equal to the mock's ghnv3 fee; and a case where an unknown carrier (e.g. `"ghn"`) yields `ErrCarrierUnavailable`.
 ```go
 func TestPlaceOrder_Goship_StoresChosenCarrierFee(t *testing.T) {
 	// ... existing integration harness setup, but construct OrderService with a
@@ -1638,7 +1652,7 @@ func TestPlaceOrder_Goship_StoresChosenCarrierFee(t *testing.T) {
 	req := domain.PlaceOrderReq{
 		AddressID:     addrID,
 		PaymentMethod: domain.PaymentMethodCOD,
-		ShippingSelections: []domain.ShippingSelection{{BrandID: brandID, Carrier: "ghn"}},
+		ShippingSelections: []domain.ShippingSelection{{BrandID: brandID, Carrier: "ghnv3"}},
 	}
 	orderResp, _, err := svc.PlaceOrder(ctx, userID, req)
 	if err != nil { t.Fatalf("PlaceOrder: %v", err) }
@@ -1686,11 +1700,20 @@ Build a selection map and replace the `s.shipping.Calculate(...)` loop:
 				WeightG: r.WeightG, LengthCM: r.LengthCM, WidthCM: r.WidthCM, HeightCM: r.HeightCM,
 			})
 		}
+		// COD: the carrier collects this brand's goods value on delivery; PayOS is prepaid (0).
+		// Using sub-order subtotal (not incl. shipping) avoids a circular dependency on the
+		// fee we are about to compute. Refined in Spec B at shipment-creation time.
+		var codVND int64
+		if req.PaymentMethod == domain.PaymentMethodCOD {
+			codVND = g.subtotal
+		}
 		opts, err := s.shipping.Quote(ctx, provider.CalcReq{
 			BrandID:    g.brandID,
 			ToAddress:  provider.ShippingAddress{Recipient: shipAddr.Recipient, Phone: shipAddr.Phone, Line1: shipAddr.Line1, Ward: shipAddr.Ward, District: shipAddr.District, City: shipAddr.City},
 			ToCityCode: shipAddr.CityCode,
 			ToDistrict: shipAddr.DistrictCode,
+			CODVND:     codVND,
+			AmountVND:  g.subtotal,
 			Items:      items,
 		})
 		if err != nil {
@@ -1746,11 +1769,11 @@ git commit -m "feat(order): re-quote chosen carrier at place-order; store shippi
 
 - [ ] **Step 1: Add code fields to the create/update request DTOs**
 
-Add to both customer and brand address request structs:
+Add to both customer and brand address request structs (Goship codes are strings):
 ```go
-	CityCode     *int `json:"city_code" binding:"required"`
-	DistrictCode *int `json:"district_code" binding:"required"`
-	WardCode     *int `json:"ward_code" binding:"required"`
+	CityCode     *string `json:"city_code" binding:"required"`
+	DistrictCode *string `json:"district_code" binding:"required"`
+	WardCode     *string `json:"ward_code" binding:"required"`
 ```
 > Marking them `required` enforces structured addresses on all NEW/updated addresses (best-practice gate). Legacy rows stay null until edited.
 
@@ -1783,7 +1806,7 @@ Inject the `location.Service` into the address service. In `Create`/`Update`, af
 	if err != nil { return nil, domain.ErrInvalidLocation }
 	if !containsCode(wards, *req.WardCode) { return nil, domain.ErrInvalidLocation }
 ```
-Add `containsCode(list []goship.Location, code int) bool`. Persist the three codes through to the repo (already wired in Task 2).
+Add `containsCode(list []goship.Location, code string) bool` (compares `l.Code == code`). Persist the three codes through to the repo (already wired in Task 2).
 
 - [ ] **Step 5: Run test to verify it passes**
 
@@ -1883,7 +1906,7 @@ Expected: PASS, logs real city list. If JSON shape differs, fix `client_http.go`
 - [ ] **Step 2: Discover real codes and run the rates test**
 
 From the cities/districts output, pick a HCMC→Hanoi district/city pair, set `GOSHIP_TEST_FROM_*`/`TO_*`, and run `TestRealGoship_Rates`.
-Expected: ≥1 carrier returned; log carrier codes (these become the canonical list, and update the mock fixture in `client_mock.go` if the real codes differ from ghn/ghtk/vtp).
+Expected: ≥1 carrier returned. The test logs `carrier`/`carrier_name` per rate — confirm whether a short code is present (if not, selection keys on `carrier_name`, already handled in `client_http.go`). Align the mock fixture in `client_mock.go` (`ghnv3`/`ghtk`/`vtp`) with the real carrier codes returned.
 
 - [ ] **Step 3: Record the confirmed contract in the spec §11**
 

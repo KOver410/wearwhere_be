@@ -41,6 +41,10 @@ type Variant struct {
 	StockQty  int
 	IsActive  bool
 	ImageID   *uuid.UUID
+	WeightG   *int
+	LengthCM  *int
+	WidthCM   *int
+	HeightCM  *int
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	DeletedAt *time.Time

@@ -8,12 +8,15 @@ import (
 )
 
 type ShippingAddress struct {
-	Recipient string `json:"recipient"`
-	Phone     string `json:"phone"`
-	Line1     string `json:"line1"`
-	Ward      string `json:"ward"`
-	District  string `json:"district"`
-	City      string `json:"city"`
+	Recipient    string  `json:"recipient"`
+	Phone        string  `json:"phone"`
+	Line1        string  `json:"line1"`
+	Ward         string  `json:"ward"`
+	District     string  `json:"district"`
+	City         string  `json:"city"`
+	CityCode     *string `json:"city_code,omitempty"`
+	DistrictCode *string `json:"district_code,omitempty"`
+	WardCode     *string `json:"ward_code,omitempty"`
 }
 
 type Order struct {

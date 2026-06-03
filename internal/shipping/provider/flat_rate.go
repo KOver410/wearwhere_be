@@ -16,13 +16,15 @@ func NewFlatRateProvider(b brandrepo.BrandRepo) *FlatRateProvider {
 	return &FlatRateProvider{brandRepo: b}
 }
 
-func (p *FlatRateProvider) Calculate(ctx context.Context, r CalcReq) (*shippingdomain.FeeQuote, error) {
+func (p *FlatRateProvider) Quote(ctx context.Context, r CalcReq) ([]shippingdomain.ShippingOption, error) {
 	b, err := p.brandRepo.FindByID(ctx, r.BrandID)
 	if err != nil {
 		return nil, err
 	}
-	return &shippingdomain.FeeQuote{
-		AmountVND: b.ShippingFlatFeeVND,
-		Currency:  "VND",
-	}, nil
+	return []shippingdomain.ShippingOption{{
+		Carrier:     "flat",
+		CarrierName: "Standard",
+		Service:     "standard",
+		AmountVND:   b.ShippingFlatFeeVND,
+	}}, nil
 }

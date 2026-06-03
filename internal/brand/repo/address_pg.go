@@ -137,6 +137,28 @@ func (r *AddressPG) Update(ctx context.Context, id, brandID uuid.UUID, req *doma
 	return scanAddress(row)
 }
 
+func (r *AddressPG) PrimaryAddressCodes(ctx context.Context, brandID uuid.UUID) (string, string, error) {
+	var city, district *string
+	err := r.db.QueryRow(ctx,
+		`SELECT city_code, district_code FROM brand_addresses
+		  WHERE brand_id = $1 AND is_primary = TRUE AND deleted_at IS NULL
+		  LIMIT 1`, brandID).Scan(&city, &district)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	c, d := "", ""
+	if city != nil {
+		c = *city
+	}
+	if district != nil {
+		d = *district
+	}
+	return c, d, nil
+}
+
 func (r *AddressPG) SoftDelete(ctx context.Context, id, brandID uuid.UUID) error {
 	tag, err := r.db.Exec(ctx,
 		`UPDATE brand_addresses SET deleted_at = NOW(), updated_at = NOW()

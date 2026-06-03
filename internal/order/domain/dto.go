@@ -20,12 +20,21 @@ type CheckoutPreviewItem struct {
 	AvailableQty int       `json:"available_qty"`
 }
 
+type ShippingOptionResp struct {
+	Carrier     string `json:"carrier"`
+	CarrierName string `json:"carrier_name"`
+	Service     string `json:"service"`
+	AmountVND   int64  `json:"amount_vnd"`
+	ETA         string `json:"eta"`
+}
+
 type CheckoutPreviewSubOrder struct {
-	Brand          BrandRef              `json:"brand"`
-	Items          []CheckoutPreviewItem `json:"items"`
-	SubtotalVND    int64                 `json:"subtotal_vnd"`
-	ShippingFeeVND int64                 `json:"shipping_fee_vnd"`
-	TotalVND       int64                 `json:"total_vnd"`
+	Brand           BrandRef              `json:"brand"`
+	Items           []CheckoutPreviewItem `json:"items"`
+	SubtotalVND     int64                 `json:"subtotal_vnd"`
+	ShippingFeeVND  int64                 `json:"shipping_fee_vnd"`
+	TotalVND        int64                 `json:"total_vnd"`
+	ShippingOptions []ShippingOptionResp  `json:"shipping_options"`
 }
 
 type BrandRef struct {
@@ -41,15 +50,22 @@ type CheckoutPreviewResp struct {
 	SubtotalVND      int64                     `json:"subtotal_vnd"`
 	ShippingTotalVND int64                     `json:"shipping_total_vnd"`
 	GrandTotalVND    int64                     `json:"grand_total_vnd"`
-	MinOrderValueVND int64                     `json:"min_order_value_vnd"`
-	MeetsMinOrder    bool                      `json:"meets_min_order"`
-	Warnings         []string                  `json:"warnings"`
+	MinOrderValueVND  int64                     `json:"min_order_value_vnd"`
+	MeetsMinOrder     bool                      `json:"meets_min_order"`
+	Warnings          []string                  `json:"warnings"`
+	AddressIncomplete bool                      `json:"address_incomplete"`
+}
+
+type ShippingSelection struct {
+	BrandID uuid.UUID `json:"brand_id" binding:"required"`
+	Carrier string    `json:"carrier" binding:"required"`
 }
 
 type PlaceOrderReq struct {
-	AddressID     uuid.UUID     `json:"address_id" binding:"required"`
-	PaymentMethod PaymentMethod `json:"payment_method" binding:"required"`
-	Notes         string        `json:"notes" binding:"max=500"`
+	AddressID          uuid.UUID          `json:"address_id" binding:"required"`
+	PaymentMethod      PaymentMethod      `json:"payment_method" binding:"required"`
+	Notes              string             `json:"notes" binding:"max=500"`
+	ShippingSelections []ShippingSelection `json:"shipping_selections" binding:"required,dive"`
 }
 
 type PaymentResp struct {

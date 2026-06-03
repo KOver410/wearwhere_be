@@ -23,6 +23,7 @@ type Config struct {
 	Storage     StorageConfig
 	Payos       PayosConfig
 	Shipping    ShippingConfig
+	Goship      GoshipConfig
 	Reservation ReservationConfig
 }
 
@@ -186,6 +187,15 @@ func Load() (*Config, error) {
 	cfg.Shipping = ShippingConfig{
 		Provider: getEnv("SHIPPING_PROVIDER", "flat"),
 	}
+	cfg.Goship = GoshipConfig{
+		Mode:               getEnv("GOSHIP_MODE", "mock"),
+		Token:              getEnv("GOSHIP_TOKEN", ""),
+		BaseURL:            getEnv("GOSHIP_BASE_URL", "https://sandbox.goship.io/api/v2"),
+		DefaultItemWeightG: getInt("GOSHIP_DEFAULT_ITEM_WEIGHT_G", 500),
+		DefaultLengthCM:    getInt("GOSHIP_DEFAULT_LENGTH_CM", 20),
+		DefaultWidthCM:     getInt("GOSHIP_DEFAULT_WIDTH_CM", 15),
+		DefaultHeightCM:    getInt("GOSHIP_DEFAULT_HEIGHT_CM", 10),
+	}
 	cfg.Reservation = ReservationConfig{
 		TimeoutMinutes:  getInt("RESERVATION_TIMEOUT_MINUTES", 30),
 		CleanupInterval: getDuration("RESERVATION_CLEANUP_INTERVAL", 5*time.Minute),
@@ -205,6 +215,16 @@ type PayosConfig struct {
 
 type ShippingConfig struct {
 	Provider string
+}
+
+type GoshipConfig struct {
+	Mode               string // mock | sandbox | production
+	Token              string
+	BaseURL            string
+	DefaultItemWeightG int
+	DefaultLengthCM    int
+	DefaultWidthCM     int
+	DefaultHeightCM    int
 }
 
 type ReservationConfig struct {

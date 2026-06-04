@@ -68,7 +68,7 @@ cmd/api/main.go                 MODIFY  wire fulfillment + webhook + brand route
 
 ## Phase 1 — Schema, Domain, Config
 
-### Task 1: Migration 000031 — fulfillment fields on sub_orders
+### Task 1: Migration 000031 — fulfillment fields on sub_orders ✅ DONE (bbd6c4c)
 
 **Files:** Create `db/migrations/000031_add_fulfillment_fields_to_sub_orders.up.sql` / `.down.sql`
 
@@ -107,7 +107,7 @@ git commit -m "feat(db): fulfillment fields on sub_orders (cost, goship_shipment
 
 ---
 
-### Task 2: SubOrder struct + repo cols/scan + config secret + .env
+### Task 2: SubOrder struct + repo cols/scan + config secret + .env ✅ DONE (64570da)
 
 **Files:** Modify `internal/order/domain/order.go`, `internal/order/repo/sub_order_pg.go`, `internal/config/config.go`, `.env.example`
 
@@ -161,7 +161,7 @@ git commit -m "feat(order): SubOrder fulfillment fields wired through repo; Gosh
 
 ## Phase 2 — Goship Shipper Client + Status Mapping
 
-### Task 3: Goship Shipper interface + CreateShipment + webhook verify (mock + http + factory)
+### Task 3: Goship Shipper interface + CreateShipment + webhook verify (mock + http + factory) ✅ DONE (42243e2)
 
 **Files:** Modify `internal/shipping/goship/client.go`, `client_http.go`, `client_mock.go`, `factory.go`
 
@@ -362,7 +362,7 @@ git commit -m "feat(goship): Shipper interface (CreateShipment + webhook HMAC ve
 
 ---
 
-### Task 4: Goship status mapping
+### Task 4: Goship status mapping ✅ DONE (e4a5233)
 
 **Files:** Create `internal/shipping/goship/status.go`, `status_test.go`
 
@@ -448,7 +448,7 @@ git commit -m "feat(goship): delivery status -> coarse category mapping"
 
 ## Phase 3 — Repos
 
-### Task 5: sub-order + order repo methods
+### Task 5: sub-order + order repo methods ✅ DONE (5cfb644)
 
 **Files:** Modify `internal/order/repo/repo.go`, `internal/order/repo/sub_order_pg.go`, `internal/order/repo/order_pg.go`, `internal/brand/repo/address_pg.go` (+ its interface)
 
@@ -649,7 +649,7 @@ git commit -m "feat(order): sub-order fulfillment repo methods + order complete 
 
 ## Phase 4 — Domain guards + Fulfillment service
 
-### Task 6: transition guards + errors
+### Task 6: transition guards + errors ✅ DONE (6294c07)
 
 **Files:** Create `internal/order/domain/fulfillment.go`, `fulfillment_test.go`; modify `internal/order/domain/errors.go`
 
@@ -718,7 +718,7 @@ git commit -m "feat(order): fulfillment transition guards + errors"
 
 ---
 
-### Task 7: DTOs for brand fulfillment + customer tracking
+### Task 7: DTOs for brand fulfillment + customer tracking ✅ DONE (31d6b6f)
 
 **Files:** Modify `internal/order/domain/dto.go`
 
@@ -785,7 +785,7 @@ git commit -m "feat(order): brand fulfillment DTOs + customer tracking fields in
 
 ---
 
-### Task 8: Fulfillment service — List, Detail, Confirm, Ship
+### Task 8: Fulfillment service — List, Detail, Confirm, Ship ✅ DONE (c802fac; pool-removal fix in 9cb6c75) — NewFulfillmentService takes NO pool param (6 args)
 
 **Files:** Create `internal/order/service/fulfillment_service.go`
 
@@ -1031,7 +1031,7 @@ git commit -m "feat(order): fulfillment service (list/detail/confirm/ship via Go
 
 ## Phase 5 — Webhook service + handlers + routes
 
-### Task 9: Goship webhook service (idempotent)
+### Task 9: Goship webhook service (idempotent) ✅ DONE (9cb6c75) — incl. Task 8 pool-removal fix folded in
 
 **Files:** Create `internal/order/service/shipping_webhook_service.go`
 
@@ -1156,7 +1156,7 @@ git commit -m "feat(order): idempotent Goship status webhook service (delivered-
 
 ---
 
-### Task 10: handlers + routes
+### Task 10: handlers + routes ✅ DONE (3e49076) — CtxBrandID="brand.id", httpx.Error(c,status,code,msg)
 
 **Files:** Create `internal/order/handler/brand_fulfillment_handler.go`, `internal/order/handler/shipping_webhook_handler.go`; modify `internal/order/handler/routes.go`
 
@@ -1398,7 +1398,7 @@ git commit -m "feat(order): brand fulfillment handlers + Goship webhook/simulate
 
 ## Phase 6 — Wiring + integration tests + live reconcile
 
-### Task 11: Wire everything in main.go
+### Task 11: Wire everything in main.go ✅ DONE (deac7c8) — dev simulate gated on Payos mock devGroup
 
 **Files:** Modify `cmd/api/main.go`
 
@@ -1444,7 +1444,7 @@ git commit -m "feat(wiring): fulfillment service + brand fulfillment routes + Go
 
 ---
 
-### Task 12: Integration tests (fulfillment + webhook)
+### Task 12: Integration tests (fulfillment + webhook) ✅ DONE (dddcd0f) — full suite green; PayOS-delivery case skipped (harness lacks payos-paid helper)
 
 **Files:** Create `internal/order/service/fulfillment_service_test.go`, `internal/order/service/shipping_webhook_service_test.go` (both `//go:build integration`)
 
@@ -1485,7 +1485,7 @@ git commit -m "test(order): fulfillment lifecycle + Goship webhook integration t
 
 ---
 
-### Task 13: Live contract reconciliation (gated, no real shipment)
+### Task 13: Live contract reconciliation (gated, no real shipment) ✅ DONE — gated test in place (Rates live-validated; /shipments POST gated behind GOSHIP_ALLOW_REAL_CREATE; spec §11 documents pending confirmation)
 
 **Files:** Modify (if needed) `internal/shipping/goship/client_http.go`; modify `docs/superpowers/specs/2026-06-04-goship-fulfillment-design.md` §11
 
@@ -1515,14 +1515,16 @@ git commit -m "test(goship): gated real shipment-create check; document /shipmen
 
 ---
 
-## Definition of Done (Spec B)
+## Definition of Done (Spec B) — ✅ ALL MET (final review fixes in a7473d0)
 
-- [ ] Migration 000031 applied (dev+test); sub_orders has cost/goship_code/tracking_url/status_text.
-- [ ] `go test ./...` and `go test -tags integration -p 1 ./...` both green (full module, incl. cmd/api E2E).
-- [ ] Brand can `GET /brand/me/orders`, view detail, `confirm`, and `ship` (own sub-orders only; cross-brand → 403).
-- [ ] Ship re-quotes Goship, creates a shipment (mock in dev), stores tracking_no/goship_code/cost/tracking_url; customer fee unchanged.
-- [ ] `POST /shipping/goship/webhook` verifies HMAC, idempotently maps status; delivered → sub-order delivered, COD stock committed + COD payment paid at completion, order `completed` when all delivered.
-- [ ] `POST /dev/goship/simulate` works in mock mode; no real shipment is created in any test.
-- [ ] Customer order detail surfaces tracking_no/carrier/status_text/tracking_url.
-- [ ] `/shipments` contract confirmed against the live API, or §11 explicitly flags it as pending production confirmation.
-- [ ] Out of scope confirmed deferred: cancellation, refund, return/lost restock.
+- [x] Migration 000031 applied (dev+test); sub_orders has cost/goship_code/tracking_url/status_text.
+- [x] `go test ./...` and `go test -tags integration -p 1 ./...` both green (full module, incl. cmd/api E2E).
+- [x] Brand can `GET /brand/me/orders`, view detail, `confirm`, and `ship` (own sub-orders only; cross-brand → 403).
+- [x] Ship re-quotes Goship, creates a shipment (mock in dev), stores tracking_no/goship_code/cost/tracking_url; customer fee unchanged. (Ship is transactional with a FOR UPDATE lock — no double-booking on concurrent ship.)
+- [x] `POST /shipping/goship/webhook` verifies HMAC, idempotently maps status; delivered → sub-order delivered, COD stock committed + COD payment paid at completion, order `completed` when all delivered.
+- [x] `POST /dev/goship/simulate` works in mock mode (gated on Goship mock); no real shipment is created in any test.
+- [x] Customer order detail surfaces tracking_no/carrier/status_text/tracking_url.
+- [~] `/shipments` contract: §11 flags it as ASSUMED pending production confirmation (gated real-create test in place; production token, so not booked).
+- [x] Out of scope confirmed deferred: cancellation, refund, return/lost restock.
+
+> Final review (a7473d0) fixed: transactional Ship (double-booking), `deliveredHints` false-positive on pickup, dev-simulate mode gate, webhook ErrIdempotent tolerance, AllDelivered excludes cancelled. Tracked non-blocking: webhook reads order/payment via pool (advisory); Confirm RowsAffected not checked (low impact).

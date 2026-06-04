@@ -12,6 +12,10 @@ See `docs/superpowers/plans/2026-06-04-gcp-deployment.md` (Tasks 4–8).
 ssh -i ~/.ssh/wearwhere <user>@<ip>
 cd /opt/wearwhere && ./deploy/deploy.sh
 ```
+Always run `docker compose` from `/opt/wearwhere/` (as `deploy.sh` does) so the
+`.env` file is auto-loaded for compose interpolation of `POSTGRES_*` and
+`SITE_ADDRESS`. If the `migrate` service is left `Exited(1)` after a transient
+DB race, re-run it: `docker compose -f docker-compose.prod.yml up -d migrate`.
 
 ## Restore a backup
 ```
@@ -35,7 +39,7 @@ Edit `/opt/wearwhere/.env` on the VM, then `./deploy/deploy.sh`:
       `STORAGE_BASE_URL`, `PAYOS_RETURN_URL`, `PAYOS_CANCEL_URL`, `PAYOS_BASE_URL`
 - [ ] PayOS: register individual account (CCCD + personal bank account in your name),
       set `PAYOS_MODE=production` + `PAYOS_CLIENT_ID` / `PAYOS_API_KEY` / `PAYOS_CHECKSUM_KEY`
-- [ ] Goship: `SHIPPING_PROVIDER=goship`, `GOSHIP_MODE=production` (or sandbox) + `GOSHIP_TOKEN`
+- [ ] Goship: `SHIPPING_PROVIDER=goship`, `GOSHIP_MODE=production` (or sandbox) + `GOSHIP_TOKEN` + `GOSHIP_CLIENT_SECRET` (verifies status-webhook signatures)
 - [ ] OAuth: fill `GOOGLE_CLIENT_IDS` / `APPLE_CLIENT_IDS` (web + iOS + Android)
 - [ ] SMTP: real Gmail app password
 - [ ] Storage → GCS: `STORAGE_DRIVER=gcs`, `STORAGE_GCS_BUCKET=<bucket>`

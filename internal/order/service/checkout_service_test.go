@@ -100,8 +100,6 @@ func newFakeShipping(fee int64) stubProvider {
 // Helpers
 // ---------------------------------------------------------------------------
 
-func strPtr(s string) *string { return &s }
-
 func makeAddr(userID uuid.UUID) *customeraddrdomain.CustomerAddress {
 	city := "79"
 	district := "760"

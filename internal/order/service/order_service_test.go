@@ -20,7 +20,9 @@ import (
 	"github.com/wearwhere/wearwhere_be/internal/payment/payos"
 	paymentrepo "github.com/wearwhere/wearwhere_be/internal/payment/repo"
 	productrepo "github.com/wearwhere/wearwhere_be/internal/product/repo"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/goship"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/weight"
 	"github.com/wearwhere/wearwhere_be/internal/testfixtures"
 )
 
@@ -102,6 +104,9 @@ func TestPlaceOrder_COD_Success(t *testing.T) {
 		AddressID:     s.AddrID,
 		PaymentMethod: domain.PaymentMethodCOD,
 		Notes:         "fast",
+		ShippingSelections: []domain.ShippingSelection{
+			{BrandID: s.BrandID, Carrier: "flat"},
+		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, domain.OrderStatusProcessing, resp.Status)
@@ -117,6 +122,9 @@ func TestPlaceOrder_Payos_ReturnsCheckoutURL(t *testing.T) {
 	resp, pay, err := s.Svc.PlaceOrder(ctx, s.UserID, domain.PlaceOrderReq{
 		AddressID:     s.AddrID,
 		PaymentMethod: domain.PaymentMethodPayos,
+		ShippingSelections: []domain.ShippingSelection{
+			{BrandID: s.BrandID, Carrier: "flat"},
+		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, domain.OrderStatusPendingPayment, resp.Status)
@@ -147,6 +155,9 @@ func TestPlaceOrder_MinOrderValue(t *testing.T) {
 	_, _, err := s.Svc.PlaceOrder(ctx, s.UserID, domain.PlaceOrderReq{
 		AddressID:     s.AddrID,
 		PaymentMethod: domain.PaymentMethodCOD,
+		ShippingSelections: []domain.ShippingSelection{
+			{BrandID: s.BrandID, Carrier: "flat"},
+		},
 	})
 	require.ErrorIs(t, err, domain.ErrMinOrderValue)
 }
@@ -172,6 +183,9 @@ func TestPlaceOrder_StockReservedAfterSuccess(t *testing.T) {
 	_, _, err := s.Svc.PlaceOrder(ctx, s.UserID, domain.PlaceOrderReq{
 		AddressID:     s.AddrID,
 		PaymentMethod: domain.PaymentMethodPayos,
+		ShippingSelections: []domain.ShippingSelection{
+			{BrandID: s.BrandID, Carrier: "flat"},
+		},
 	})
 	require.NoError(t, err)
 
@@ -187,6 +201,9 @@ func TestPlaceOrder_ClearsCartOnSuccess(t *testing.T) {
 	_, _, err := s.Svc.PlaceOrder(ctx, s.UserID, domain.PlaceOrderReq{
 		AddressID:     s.AddrID,
 		PaymentMethod: domain.PaymentMethodCOD,
+		ShippingSelections: []domain.ShippingSelection{
+			{BrandID: s.BrandID, Carrier: "flat"},
+		},
 	})
 	require.NoError(t, err)
 
@@ -195,4 +212,116 @@ func TestPlaceOrder_ClearsCartOnSuccess(t *testing.T) {
 		`SELECT COUNT(*) FROM cart_items WHERE user_id=$1`, s.UserID).Scan(&cnt)
 	require.NoError(t, err)
 	require.Equal(t, 0, cnt)
+}
+
+// ---------------------------------------------------------------------------
+// Goship provider tests
+// ---------------------------------------------------------------------------
+
+// goshipTestSetup seeds the minimum rows required for GoshipProvider tests:
+// a brand WITH a primary brand_address (city_code + district_code set),
+// a customer address with location codes, and one cart item.
+// Returns the testSetup plus the pool for ad-hoc queries.
+func setupGoshipOrder(t *testing.T, qty int, price float64) testSetup {
+	t.Helper()
+	pool := testfixtures.MustPool(t)
+	ctx := context.Background()
+
+	customer := testfixtures.SeedCustomer(t, pool)
+	addr := testfixtures.SeedCustomerAddress(t, pool, customer.ID, testfixtures.CustomerAddressOpts{IsDefault: true})
+	brand := testfixtures.SeedBrand(t, pool, uuid.Nil)
+
+	// Seed a primary brand address with city/district codes so GoshipProvider
+	// can read the pickup location.
+	testfixtures.SeedBrandAddress(t, pool, brand.ID, "100000", "100000100")
+
+	cat := testfixtures.SeedCategory(t, pool)
+	prod := testfixtures.SeedProduct(t, pool, brand.ID, cat.ID, "active")
+	variantID := testfixtures.SeedVariant(t, pool, prod.ID, "M", "Black", price, qty+5)
+
+	testfixtures.SeedCartItem(t, pool, customer.ID, variantID, qty, price)
+
+	// Build OrderService with GoshipProvider (mock client) + brand address repo.
+	brandAddrRepo := brandrepo.NewAddressPG(pool)
+	goshipProv := provider.NewGoshipProvider(
+		goship.NewMockClient(),
+		brandAddrRepo,
+		weight.Defaults{WeightG: 500, LengthCM: 20, WidthCM: 15, HeightCM: 10},
+	)
+	svc := service.NewOrderService(
+		pool,
+		orderrepo.NewOrderPG(pool),
+		orderrepo.NewSubOrderPG(pool),
+		orderrepo.NewOrderItemPG(pool),
+		paymentrepo.NewPaymentPG(pool),
+		productrepo.NewVariantPG(pool),
+		customeraddrrepo.NewAddressPG(pool),
+		authrepo.NewUserPG(pool),
+		goshipProv,
+		payos.NewMockClient(""),
+		service.Config{
+			ReservationTimeout: 30 * time.Minute,
+			PayosReturnURL:     "http://ret",
+			PayosCancelURL:     "http://can",
+		},
+	)
+	_ = ctx
+	return testSetup{
+		UserID:    customer.ID,
+		AddrID:    addr.ID,
+		BrandID:   brand.ID,
+		ProductID: prod.ID,
+		VariantID: variantID,
+		Svc:       svc,
+		Pool:      pool,
+	}
+}
+
+func TestPlaceOrder_Goship_StoresChosenCarrierFee(t *testing.T) {
+	// qty=1 variant, default weight 500g → ceil(500/1000)=1 kg
+	// ghnv3 fee = 15000 + 5000*1 = 20000 VND
+	const qty = 1
+	const price = 100000.0
+	const expectedGhnFee int64 = 20000
+
+	s := setupGoshipOrder(t, qty, price)
+	ctx := context.Background()
+
+	_, _, err := s.Svc.PlaceOrder(ctx, s.UserID, domain.PlaceOrderReq{
+		AddressID:     s.AddrID,
+		PaymentMethod: domain.PaymentMethodCOD,
+		ShippingSelections: []domain.ShippingSelection{
+			{BrandID: s.BrandID, Carrier: "ghnv3"},
+		},
+	})
+	require.NoError(t, err)
+
+	// Verify shipping_carrier and shipping_fee_vnd persisted in sub_orders.
+	var carrier string
+	var fee int64
+	err = s.Pool.QueryRow(ctx,
+		`SELECT so.shipping_carrier, so.shipping_fee_vnd
+		   FROM sub_orders so
+		   JOIN orders o ON o.id = so.order_id
+		  WHERE o.user_id = $1
+		  ORDER BY so.created_at DESC
+		  LIMIT 1`,
+		s.UserID).Scan(&carrier, &fee)
+	require.NoError(t, err)
+	require.Equal(t, "ghnv3", carrier)
+	require.Equal(t, expectedGhnFee, fee)
+}
+
+func TestPlaceOrder_Goship_UnknownCarrier(t *testing.T) {
+	s := setupGoshipOrder(t, 1, 100000)
+	ctx := context.Background()
+
+	_, _, err := s.Svc.PlaceOrder(ctx, s.UserID, domain.PlaceOrderReq{
+		AddressID:     s.AddrID,
+		PaymentMethod: domain.PaymentMethodCOD,
+		ShippingSelections: []domain.ShippingSelection{
+			{BrandID: s.BrandID, Carrier: "ghn"}, // "ghn" not returned by mock
+		},
+	})
+	require.ErrorIs(t, err, domain.ErrCarrierUnavailable)
 }

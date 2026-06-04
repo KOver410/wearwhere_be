@@ -268,6 +268,8 @@ type SeededCustomerAddress struct {
 }
 
 // SeedCustomerAddress inserts a customer_addresses row with sane Vietnam defaults.
+// city_code, district_code, and ward_code are always seeded with placeholder values
+// so that the PlaceOrder address-incomplete guard passes without extra setup.
 func SeedCustomerAddress(t *testing.T, db DBTX, userID uuid.UUID, opts CustomerAddressOpts) SeededCustomerAddress {
 	t.Helper()
 	if opts.Label == "" {
@@ -283,11 +285,34 @@ func SeedCustomerAddress(t *testing.T, db DBTX, userID uuid.UUID, opts CustomerA
 	_, err := db.Exec(context.Background(),
 		`INSERT INTO customer_addresses
            (id, user_id, label, recipient_name, recipient_phone,
-            address_line, ward, district, city, country, is_default)
-         VALUES ($1,$2,$3,$4,$5,'123 Lê Lợi','Bến Nghé','Quận 1','TP HCM','VN',$6)`,
+            address_line, ward, district, city,
+            city_code, district_code, ward_code,
+            country, is_default)
+         VALUES ($1,$2,$3,$4,$5,'123 Lê Lợi','Bến Nghé','Quận 1','TP HCM',
+                 '100000','100000100','10000010001',
+                 'VN',$6)`,
 		id, userID, opts.Label, opts.RecipientName, opts.RecipientPhone, opts.IsDefault)
 	if err != nil {
 		t.Fatalf("seed customer_address: %v", err)
 	}
 	return SeededCustomerAddress{ID: id, UserID: userID, IsDefault: opts.IsDefault}
+}
+
+// SeedBrandAddress inserts a primary brand_addresses row with city_code and
+// district_code set. This is required for the GoshipProvider to look up the
+// pickup address when quoting shipping.
+func SeedBrandAddress(t *testing.T, db DBTX, brandID uuid.UUID, cityCode, districtCode string) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	_, err := db.Exec(context.Background(),
+		`INSERT INTO brand_addresses
+		   (id, brand_id, label, address_line, ward, district, city,
+		    city_code, district_code, country, is_primary, is_public)
+		 VALUES ($1, $2, 'Kho', '456 Nguyễn Huệ', 'Bến Nghé', 'Quận 1', 'TP HCM',
+		         $3, $4, 'VN', TRUE, TRUE)`,
+		id, brandID, cityCode, districtCode)
+	if err != nil {
+		t.Fatalf("seed brand_address: %v", err)
+	}
+	return id
 }

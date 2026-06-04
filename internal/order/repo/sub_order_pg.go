@@ -16,7 +16,7 @@ type SubOrderPG struct{ db DBTX }
 func NewSubOrderPG(db DBTX) *SubOrderPG { return &SubOrderPG{db: db} }
 
 const subOrderCols = `id, order_id, brand_id, subtotal_vnd, shipping_fee_vnd, total_vnd,
-                      status, tracking_no, shipping_provider,
+                      status, tracking_no, shipping_carrier, shipping_provider,
                       confirmed_at, shipped_at, delivered_at, cancelled_at,
                       created_at, updated_at`
 
@@ -25,7 +25,7 @@ func scanSubOrder(row pgx.Row, includeBrandJoin bool) (*domain.SubOrder, error) 
 	if includeBrandJoin {
 		err := row.Scan(
 			&s.ID, &s.OrderID, &s.BrandID, &s.SubtotalVND, &s.ShippingFeeVND, &s.TotalVND,
-			&s.Status, &s.TrackingNo, &s.ShippingProvider,
+			&s.Status, &s.TrackingNo, &s.ShippingCarrier, &s.ShippingProvider,
 			&s.ConfirmedAt, &s.ShippedAt, &s.DeliveredAt, &s.CancelledAt,
 			&s.CreatedAt, &s.UpdatedAt,
 			&s.BrandSlug, &s.BrandName,
@@ -40,7 +40,7 @@ func scanSubOrder(row pgx.Row, includeBrandJoin bool) (*domain.SubOrder, error) 
 	}
 	err := row.Scan(
 		&s.ID, &s.OrderID, &s.BrandID, &s.SubtotalVND, &s.ShippingFeeVND, &s.TotalVND,
-		&s.Status, &s.TrackingNo, &s.ShippingProvider,
+		&s.Status, &s.TrackingNo, &s.ShippingCarrier, &s.ShippingProvider,
 		&s.ConfirmedAt, &s.ShippedAt, &s.DeliveredAt, &s.CancelledAt,
 		&s.CreatedAt, &s.UpdatedAt,
 	)
@@ -59,17 +59,19 @@ func (r *SubOrderPG) Create(ctx context.Context, db DBTX, so *domain.SubOrder) e
 	}
 	row := db.QueryRow(ctx,
 		`INSERT INTO sub_orders
-		   (order_id, brand_id, subtotal_vnd, shipping_fee_vnd, total_vnd, status)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		   (order_id, brand_id, subtotal_vnd, shipping_fee_vnd, total_vnd, status,
+		    shipping_carrier, shipping_provider)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		 RETURNING id, created_at, updated_at`,
-		so.OrderID, so.BrandID, so.SubtotalVND, so.ShippingFeeVND, so.TotalVND, so.Status)
+		so.OrderID, so.BrandID, so.SubtotalVND, so.ShippingFeeVND, so.TotalVND, so.Status,
+		so.ShippingCarrier, so.ShippingProvider)
 	return row.Scan(&so.ID, &so.CreatedAt, &so.UpdatedAt)
 }
 
 func (r *SubOrderPG) ListByOrderID(ctx context.Context, orderID uuid.UUID) ([]*domain.SubOrder, error) {
 	rows, err := r.db.Query(ctx,
 		`SELECT s.id, s.order_id, s.brand_id, s.subtotal_vnd, s.shipping_fee_vnd, s.total_vnd,
-		        s.status, s.tracking_no, s.shipping_provider,
+		        s.status, s.tracking_no, s.shipping_carrier, s.shipping_provider,
 		        s.confirmed_at, s.shipped_at, s.delivered_at, s.cancelled_at,
 		        s.created_at, s.updated_at,
 		        b.slug, b.name

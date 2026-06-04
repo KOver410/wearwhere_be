@@ -51,6 +51,7 @@ type SubOrder struct {
 	TotalVND         int64
 	Status           SubOrderStatus
 	TrackingNo       *string
+	ShippingCarrier  *string
 	ShippingProvider *string
 	ConfirmedAt      *time.Time
 	ShippedAt        *time.Time

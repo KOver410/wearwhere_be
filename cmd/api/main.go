@@ -46,7 +46,9 @@ import (
 	productrepo "github.com/wearwhere/wearwhere_be/internal/product/repo"
 	productservice "github.com/wearwhere/wearwhere_be/internal/product/service"
 	"github.com/wearwhere/wearwhere_be/internal/shared/storage"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/goship"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/weight"
 	wishlisthandler "github.com/wearwhere/wearwhere_be/internal/wishlist/handler"
 	wishlistrepo "github.com/wearwhere/wearwhere_be/internal/wishlist/repo"
 	wishlistservice "github.com/wearwhere/wearwhere_be/internal/wishlist/service"
@@ -139,9 +141,27 @@ func main() {
 	paymentRepo := paymentrepo.NewPaymentPG(pgPool)
 
 	// ── shipping provider ──
+	goshipClient, err := goship.NewFromConfig(goship.Config{
+		Mode:    cfg.Goship.Mode,
+		Token:   cfg.Goship.Token,
+		BaseURL: cfg.Goship.BaseURL,
+	})
+	if err != nil {
+		log.Fatalf("goship client: %v", err)
+	}
 	shippingProvider, err := provider.NewFromConfig(
 		provider.Config{Provider: cfg.Shipping.Provider},
 		brandRepo,
+		&provider.GoshipDeps{
+			Client:     goshipClient,
+			PickupRepo: addressRepo,
+			Defaults: weight.Defaults{
+				WeightG:  cfg.Goship.DefaultItemWeightG,
+				LengthCM: cfg.Goship.DefaultLengthCM,
+				WidthCM:  cfg.Goship.DefaultWidthCM,
+				HeightCM: cfg.Goship.DefaultHeightCM,
+			},
+		},
 	)
 	if err != nil {
 		log.Fatalf("shipping provider: %v", err)

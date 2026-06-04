@@ -118,9 +118,10 @@ func main() {
 
 	// ── shipping client + location ──
 	goshipClient, err := goship.NewFromConfig(goship.Config{
-		Mode:    cfg.Goship.Mode,
-		Token:   cfg.Goship.Token,
-		BaseURL: cfg.Goship.BaseURL,
+		Mode:         cfg.Goship.Mode,
+		Token:        cfg.Goship.Token,
+		ClientSecret: cfg.Goship.ClientSecret,
+		BaseURL:      cfg.Goship.BaseURL,
 	})
 	if err != nil {
 		log.Fatalf("goship client: %v", err)
@@ -202,6 +203,23 @@ func main() {
 		pgPool, paymentRepo, orderRepoSvc, subOrderRepo, orderItemRepo, variantRepo, payosClient,
 	)
 
+	// ── Fulfillment + shipping webhook services ──
+	fulfillmentSvc := orderservice.NewFulfillmentService(
+		orderRepoSvc, subOrderRepo, orderItemRepo, goshipClient, addressRepo,
+		weight.Defaults{
+			WeightG:  cfg.Goship.DefaultItemWeightG,
+			LengthCM: cfg.Goship.DefaultLengthCM,
+			WidthCM:  cfg.Goship.DefaultWidthCM,
+			HeightCM: cfg.Goship.DefaultHeightCM,
+		},
+	)
+	shippingWebhookSvc := orderservice.NewShippingWebhookService(
+		pgPool, subOrderRepo, orderRepoSvc, orderItemRepo, paymentRepo, variantRepo,
+	)
+	goshipMockMode := cfg.Goship.Mode == "" || cfg.Goship.Mode == "mock"
+	brandFulfilHandler := orderhandler.NewBrandFulfillmentHandler(fulfillmentSvc)
+	shippingWebhookHandler := orderhandler.NewShippingWebhookHandler(shippingWebhookSvc, goshipClient, goshipMockMode)
+
 	// ── Sprint 3 handlers ──
 	orderH := orderhandler.New(checkoutSvc, orderSvc)
 	paymentH := paymenthandler.New(webhookSvc, payosClient, cfg.Payos.Mode == "mock")
@@ -260,6 +278,7 @@ func main() {
 	)
 	brandhandler.Mount(brandGroup, brandDeps)
 	producthandler.MountBrandProducts(brandGroup, brandProductHandler)
+	orderhandler.MountBrand(brandGroup, brandFulfilHandler)
 
 	producthandler.MountCatalog(v1, catalogHandler)
 	brandhandler.MountBrandsPublic(v1, brandsPublicHandler)
@@ -275,10 +294,12 @@ func main() {
 
 	location.RegisterRoutes(v1, location.NewHandler(locSvc))
 	paymenthandler.MountPublic(v1, paymentH)
+	orderhandler.MountShippingPublic(v1, shippingWebhookHandler)
 
 	if cfg.Payos.Mode == "mock" {
 		devGroup := r.Group("/dev")
 		paymenthandler.MountDev(devGroup, paymentH)
+		orderhandler.MountShippingDev(devGroup, shippingWebhookHandler)
 	}
 
 	// ── cleanup job ──

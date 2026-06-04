@@ -195,8 +195,8 @@ UPDATE users SET role='admin' WHERE email='admin@wearwhere.vn';
 ## Sprint 3 — Orders, Checkout, PayOS
 
 New endpoints:
-- `GET  /api/v1/me/checkout/preview?address_id=...` — dry-run with multi-brand totals + shipping per brand
-- `POST /api/v1/me/orders` — place order (COD or PayOS)
+- `GET  /api/v1/me/checkout/preview?address_id=...` — dry-run; multi-brand totals + **carrier options per brand** + `address_incomplete`
+- `POST /api/v1/me/orders` — place order (COD or PayOS); requires **`shipping_selections`** (chosen carrier per brand)
 - `GET  /api/v1/me/orders` — paginated list (filter: status, page, page_size, from, to)
 - `GET  /api/v1/me/orders/:order_no` — detail + status timeline
 - `POST /api/v1/me/orders/:order_no/cancel` — cancel (Sprint 3: COD anytime pre-confirm, PayOS unpaid only)
@@ -209,6 +209,20 @@ PayOS modes (`PAYOS_MODE` env):
 A `reservation_cleanup` job runs every `RESERVATION_CLEANUP_INTERVAL` (default 5m) and releases stock for PayOS orders pending > `RESERVATION_TIMEOUT_MINUTES` (default 30).
 
 Spec: `docs/superpowers/specs/2026-05-24-sprint-3-orders-checkout-payos-design.md`
+
+## Goship Shipping (real rates + fulfillment)
+
+Replaces flat-rate with the Goship aggregator (GHN/GHTK/VTP…): real shipping fees with carrier choice at checkout, plus brand fulfillment (ship → tracking → delivery webhook).
+
+New endpoints:
+- `GET  /api/v1/locations/cities` · `/cities/:code/districts` · `/districts/:code/wards` — cascading location picker (public; codes required on addresses)
+- Brand fulfillment (role=brand): `GET /api/v1/brand/me/orders`, `GET /…/:sub_order_id`, `POST /…/:sub_order_id/confirm`, `POST /…/:sub_order_id/ship`
+- `POST /api/v1/shipping/goship/webhook` — public Goship status callback (HMAC `x-goship-hmac-sha256`); delivered → order completed, COD settled
+- Dev: `POST /api/v1/dev/goship/simulate` (mock mode)
+
+Config: `SHIPPING_PROVIDER=goship|flat`, `GOSHIP_MODE=mock|sandbox|production`, `GOSHIP_TOKEN`, `GOSHIP_CLIENT_SECRET` (webhook HMAC), `GOSHIP_BASE_URL`, `GOSHIP_DEFAULT_*` weight/dims. Customer addresses & variants gained location codes + weight/dimension columns.
+
+Specs: `docs/superpowers/specs/2026-06-03-goship-shipping-rates-design.md` (rates) · `2026-06-04-goship-fulfillment-design.md` (fulfillment). API guide: `docs/api/flutter-integration.md`.
 Plan: `docs/superpowers/plans/2026-05-24-sprint-3-orders-checkout-payos.md`
 
 ## Security notes

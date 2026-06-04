@@ -259,10 +259,11 @@ JSON object hoặc array trực tiếp — không có envelope `{data: ...}` (tr
 
 ### Error: 2 format (do lịch sử Sprint 1 vs Sprint 2/3)
 
-**Format A — nested** (Sprint 1: auth/profile/brand/catalog/product):
+**Format A — nested** (Sprint 1: auth/profile/brand/catalog/product; **+ locations & brand fulfillment (Goship)**):
 ```json
 { "error": { "code": "VALIDATION_FAILED", "message": "Email is required", "details": { "field": "email" } } }
 ```
+Mã lỗi mới (Format A): `SUB_ORDER_NOT_FOUND`, `NOT_OWNER`, `INVALID_TRANSITION`, `CARRIER_UNAVAILABLE`, `ADDRESS_INCOMPLETE`, `SHIPMENT_FAILED`, `GOSHIP_UNAVAILABLE` (location).
 
 **Format B — flat** (Sprint 2/3: cart, wishlist, addresses, orders, payments):
 ```json
@@ -403,10 +404,53 @@ class ApiException implements Exception {
 | Method | Path | Body | Notes |
 |--------|------|------|-------|
 | GET | `/me/addresses` | — | List addresses |
-| POST | `/me/addresses` | `{recipient_name, recipient_phone, address_line, ward, district, city, is_default?}` | `is_default=true` tự bỏ flag của địa chỉ cũ |
+| POST | `/me/addresses` | xem dưới | Bắt buộc `label` + **mã địa điểm** (`city_code/district_code/ward_code`) |
 | GET | `/me/addresses/:id` | — | Detail (IDOR-safe) |
-| PATCH | `/me/addresses/:id` | partial | |
+| PATCH | `/me/addresses/:id` | partial | Mã địa điểm optional; nhưng nếu gửi 1 mã thì phải gửi đủ cả 3 |
 | DELETE | `/me/addresses/:id` | — | Soft-delete; nếu xóa default thì promote địa chỉ cũ nhất |
+
+> ⚠️ **Thay đổi (Goship):** địa chỉ giờ yêu cầu **mã địa điểm** để tính phí ship + tạo đơn vận. FE phải lấy mã từ endpoint **Locations** (§4.4.1) bằng dropdown phân cấp tỉnh→huyện→xã, rồi gửi kèm khi tạo/sửa địa chỉ.
+
+**`POST /me/addresses` body:**
+```json
+{
+  "label": "Nhà",
+  "recipient_name": "Nguyễn Văn A",
+  "recipient_phone": "+84901234567",
+  "address_line": "123 Lê Lợi",
+  "ward": "Phường Bến Nghé",
+  "district": "Quận 1",
+  "city": "Hồ Chí Minh",
+  "city_code": "700000",
+  "district_code": "700100",
+  "ward_code": "70010001",
+  "country": "VN",          // optional, default VN
+  "postal_code": null,       // optional
+  "note": null,              // optional
+  "is_default": true         // optional; true tự bỏ flag default của địa chỉ cũ
+}
+```
+- `recipient_phone`: E.164 (`+84...`).
+- `city_code/district_code/ward_code`: lấy từ §4.4.1, kiểu **string**. Validate phân cấp ở server: district phải thuộc city, ward phải thuộc district → sai trả `ErrInvalidLocation` (Format A).
+- **Lưu ý:** `AddressResponse` hiện **không** echo lại 3 mã. FE muốn pre-fill khi sửa nên giữ mã ở client hoặc map lại từ tên qua Locations.
+
+**`PATCH /me/addresses/:id`:** mọi field optional (partial). Với mã địa điểm: gửi cả 3 (đổi địa điểm) hoặc không gửi cái nào (giữ nguyên); gửi thiếu (1–2 mã) → lỗi.
+
+#### 4.4.1 Locations — `/api/v1/locations/*` (public, không cần auth) — **MỚI (Goship)**
+
+Dữ liệu tỉnh/huyện/xã từ Goship (cache 24h). Dùng để đổ dropdown phân cấp và lấy mã gửi kèm khi tạo địa chỉ.
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/locations/cities` | Danh sách tỉnh/thành |
+| GET | `/locations/cities/:city_code/districts` | Quận/huyện thuộc 1 tỉnh |
+| GET | `/locations/districts/:district_code/wards` | Phường/xã thuộc 1 quận |
+
+Response (cả 3 endpoint cùng dạng):
+```json
+{ "data": [ { "code": "700000", "name": "Hồ Chí Minh" }, { "code": "100000", "name": "Hà Nội" } ] }
+```
+Flow FE: chọn city → gọi `/cities/:code/districts` → chọn district → gọi `/districts/:code/wards` → chọn ward → gửi 3 `code` + 3 tên vào `POST /me/addresses`.
 
 ### 4.5 Wishlist — `/api/v1/me/wishlist` (auth)
 
@@ -453,13 +497,58 @@ class ApiException implements Exception {
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/me/checkout/preview?address_id=uuid` | Dry-run, KHÔNG tạo order, KHÔNG hold stock |
-| POST | `/me/orders` | Body `{address_id, payment_method: "cod"|"payos", notes?}` |
+| GET | `/me/checkout/preview?address_id=uuid` | Dry-run; trả **carrier options** mỗi brand + `address_incomplete`. KHÔNG tạo order, KHÔNG hold stock |
+| POST | `/me/orders` | Body có thêm **`shipping_selections`** (chọn carrier mỗi brand) |
 | GET | `/me/orders?status=&page=&page_size=&from=&to=` | List có filter |
-| GET | `/me/orders/:order_no` | Detail (vd `WW-20260527-AB12CD`) |
+| GET | `/me/orders/:order_no` | Detail (vd `WW-20260527-AB12CD`) — có tracking |
 | POST | `/me/orders/:order_no/cancel` | Body `{reason?}` |
 
+> ⚠️ **Thay đổi (Goship):** luồng checkout giờ là **preview → khách chọn nhà vận chuyển cho từng brand → place**. Preview trả nhiều carrier (GHN/GHTK/VTP…) kèm phí + ETA; FE cho khách chọn rồi gửi `shipping_selections` khi đặt đơn. Server **re-quote** lúc đặt để chốt phí chính thức.
+
 **Min order value:** 50,000 VND (trên subtotal). Sai → 400 `min_order_value` + `min_value_vnd`.
+
+**`GET /me/checkout/preview?address_id=uuid` response:**
+```json
+{
+  "cart_empty": false,
+  "address": { "recipient":"...", "phone":"...", "line1":"...", "ward":"...", "district":"...", "city":"...",
+               "city_code":"700000", "district_code":"700100", "ward_code":"70010001" },
+  "address_incomplete": false,        // true nếu địa chỉ THIẾU mã → KHÔNG có options + sẽ chặn đặt đơn
+  "sub_orders": [
+    {
+      "brand": { "id":"uuid", "slug":"rep-vn", "name":"REP VN" },
+      "items": [ { "variant_id":"uuid","product_name":"...","variant_label":"Black / L","qty":2,
+                   "unit_price_vnd":350000,"line_total_vnd":700000,"available_qty":12,"image_url":"https://..." } ],
+      "subtotal_vnd": 700000,
+      "shipping_fee_vnd": 20000,        // phí của option RẺ NHẤT (gợi ý); phí thật chốt theo carrier khách chọn
+      "total_vnd": 720000,
+      "shipping_options": [
+        { "carrier":"Giao Hàng Nhanh (v3)", "carrier_name":"Giao Hàng Nhanh (v3)", "service":"standard", "amount_vnd":20000, "eta":"2-4 ngày" },
+        { "carrier":"Vietnam Post", "carrier_name":"Vietnam Post", "service":"standard", "amount_vnd":15000, "eta":"3-5 ngày" }
+      ]
+    }
+  ],
+  "subtotal_vnd": 700000, "shipping_total_vnd": 20000, "grand_total_vnd": 720000,
+  "min_order_value_vnd": 50000, "meets_min_order": true,
+  "warnings": []
+}
+```
+- `address_incomplete=true` → địa chỉ chưa có mã (địa chỉ cũ trước Goship). FE phải yêu cầu khách mở lại địa chỉ, chọn dropdown (§4.4.1) để bổ sung mã trước khi đặt.
+- `shipping_options[].carrier` là **định danh** để gửi lại trong `shipping_selections` (hiện = tên hiển thị, vì Goship không trả mã ngắn).
+
+**`POST /me/orders` body:**
+```json
+{
+  "address_id": "uuid",
+  "payment_method": "payos",            // "cod" | "payos"
+  "notes": "giao giờ hành chính",       // optional, ≤500
+  "shipping_selections": [              // BẮT BUỘC — 1 phần tử / brand trong giỏ
+    { "brand_id": "uuid", "carrier": "Giao Hàng Nhanh (v3)" }
+  ]
+}
+```
+- `carrier` = giá trị `shipping_options[].carrier` khách đã chọn ở preview.
+- Server re-quote theo carrier → nếu carrier không còn khả dụng → **409 `carrier_unavailable`** (FE preview lại). Thiếu selection cho 1 brand → lỗi. Địa chỉ thiếu mã → **422 `address_incomplete`** (Format A).
 
 **`POST /me/orders` response 201:**
 ```json
@@ -468,23 +557,28 @@ class ApiException implements Exception {
     "id": "uuid", "order_no": "WW-20260527-AB12CD",
     "status": "pending_payment",          // hoặc "processing" cho COD
     "payment_method": "payos", "payment_status": "pending",
-    "subtotal_vnd": 700000, "shipping_total_vnd": 30000, "grand_total_vnd": 730000,
+    "subtotal_vnd": 700000, "shipping_total_vnd": 20000, "grand_total_vnd": 720000,
     "shipping_address": {...},
     "sub_orders": [
-      { "id":"uuid", "brand":{...}, "subtotal_vnd":700000, "shipping_fee_vnd":30000,
-        "total_vnd":730000, "status":"pending", "items":[...] }
+      { "id":"uuid", "brand":{...}, "subtotal_vnd":700000, "shipping_fee_vnd":20000,
+        "total_vnd":720000, "status":"pending",
+        "tracking_no": null, "shipping_carrier": "Giao Hàng Nhanh (v3)",
+        "tracking_url": null, "shipping_status_text": null,
+        "items":[...] }
     ],
     "created_at":"..."
   },
   "payment": {
     "id": "uuid", "method":"payos", "status":"pending",
-    "amount_vnd": 730000,
+    "amount_vnd": 720000,
     "checkout_url": "https://pay.payos.vn/web/abc...",   // null cho COD
     "qr_code": "data:image/png;base64,...",              // null cho COD
     "expired_at": "..."                                  // null cho COD
   }
 }
 ```
+
+**Tracking trong `GET /me/orders/:order_no`:** mỗi `sub_orders[]` có `tracking_no`, `shipping_carrier`, `tracking_url`, `shipping_status_text` (cập nhật khi brand ship + webhook Goship báo trạng thái — xem §5.1). Khách dùng `tracking_url` để mở trang tra cứu của hãng, `shipping_status_text` để hiển thị trạng thái live.
 
 **Cancel error subcodes** (409):
 ```json
@@ -506,6 +600,47 @@ class ApiException implements Exception {
 | POST/PATCH/DELETE | `/brand/me/products/:id/variants[/:variant_id]` | Variant CRUD |
 | POST | `/brand/me/products/:id/images` | **multipart/form-data**, field `images` (≤6 files, mỗi file ≤5MB JPG/PNG/WebP) |
 | PATCH/DELETE | `/brand/me/products/:id/images/:image_id` | Update alt_text / set primary / soft-delete |
+
+### 4.9 Brand fulfillment — `/api/v1/brand/me/orders/*` (auth + role=brand) — **MỚI (Goship)**
+
+Brand xử lý các **sub-order** của riêng mình (mỗi đơn khách có thể tách thành nhiều sub-order theo brand). Chỉ thao tác được sub-order thuộc brand đang đăng nhập (khác brand → 403).
+
+| Method | Path | Body | Notes |
+|--------|------|------|-------|
+| GET | `/brand/me/orders?status=&page=&page_size=` | — | List sub-order của brand (filter theo `status`) |
+| GET | `/brand/me/orders/:sub_order_id` | — | Chi tiết sub-order (items + địa chỉ giao + tracking) |
+| POST | `/brand/me/orders/:sub_order_id/confirm` | — | `pending → confirmed` |
+| POST | `/brand/me/orders/:sub_order_id/ship` | `{carrier?}` | `confirmed → shipped`: tạo đơn Goship, lưu tracking. `carrier` optional (override carrier đã chốt lúc đặt) |
+
+**Vòng đời sub-order:** `pending → confirmed → shipped → delivered`. `delivered` do **webhook Goship** (§5.1), không phải brand tự bấm. Khi tất cả sub-order của 1 đơn `delivered` → order `completed`; đơn **COD** được đánh dấu `paid` + trừ kho lúc giao.
+
+**`GET /brand/me/orders` response:**
+```json
+{
+  "data": [
+    { "sub_order_id":"uuid", "order_no":"WW-20260527-AB12CD", "status":"pending",
+      "recipient":"Nguyễn Văn A", "total_vnd":720000, "item_count":2,
+      "tracking_no": null, "created_at":"..." }
+  ],
+  "page":1, "page_size":20, "total":1, "total_pages":1
+}
+```
+
+**`GET /brand/me/orders/:sub_order_id` response:**
+```json
+{
+  "sub_order_id":"uuid", "order_no":"WW-20260527-AB12CD", "status":"confirmed",
+  "subtotal_vnd":700000, "shipping_fee_vnd":20000, "total_vnd":720000,
+  "shipping_carrier":"Giao Hàng Nhanh (v3)", "tracking_no":null, "tracking_url":null, "shipping_status_text":null,
+  "shipping_address": { "recipient":"...","phone":"...","line1":"...","ward":"...","district":"...","city":"..." },
+  "items": [ { "id":"uuid","variant_id":"uuid","product_name":"...","variant_label":"Black / L","qty":2,"unit_price_vnd":350000,"line_total_vnd":700000,"image_url":"https://..." } ],
+  "created_at":"..."
+}
+```
+
+**Lỗi (Format A nested):** `SUB_ORDER_NOT_FOUND` (404), `NOT_OWNER` (403), `INVALID_TRANSITION` (409 — vd ship khi chưa confirm / đơn chưa thanh toán), `CARRIER_UNAVAILABLE` (409), `SHIPMENT_FAILED` (502). Chỉ ship được khi order ở trạng thái `processing` (COD, hoặc PayOS đã `paid`).
+
+> Phí khách trả (`shipping_fee_vnd`) đã **khóa từ checkout** và không đổi khi brand ship; chi phí thật với hãng vận lưu riêng (server-side), platform chịu chênh lệch. Hủy đơn / refund / xử lý hoàn-thất lạc: **chưa hỗ trợ** (spec sau).
 
 ---
 
@@ -612,6 +747,23 @@ if (placed.payment.checkoutUrl != null) {
 ### Dev environment với PAYOS_MODE=mock
 
 Backend serve `/dev/payos/mock-checkout?orderCode=N` (HTML đơn giản với 2 nút Success/Fail). WebView hiển thị → bấm Success → POST tới `/dev/payos/simulate` mô phỏng webhook → đơn chuyển sang paid.
+
+### 5.1 Goship shipping status webhook (server→server) — **MỚI**
+
+Trạng thái giao hàng do **Goship** đẩy về backend, **không liên quan FE trực tiếp**:
+
+```
+Brand bấm Ship (POST /brand/me/orders/:id/ship)
+  ↓ BE tạo đơn Goship → lưu tracking_no + tracking_url, sub_order = shipped
+  ↓ Goship gọi POST /shipping/goship/webhook khi trạng thái đổi (ký x-goship-hmac-sha256)
+  ↓ BE map status → sub_order (shipped → delivered); khi delivered: COD → paid + trừ kho; tất cả sub_order delivered → order = completed
+  ↓
+FE chỉ cần POLL GET /me/orders/:order_no để thấy sub_orders[].status / tracking_no / tracking_url / shipping_status_text cập nhật
+```
+
+- FE **không** gọi webhook này. Để hiển thị tracking cho khách: poll `GET /me/orders/:order_no` (hoặc fetch khi mở màn order detail) và đọc `sub_orders[].{status, tracking_no, tracking_url, shipping_status_text}`.
+- **Dev:** `POST /dev/goship/simulate` (chỉ mock mode) body `{tracking_no, status, is_return?, is_lost?}` để mô phỏng webhook — ví dụ `status:"Đã giao hàng"` để chuyển sub-order sang delivered. Dùng test luồng giao hàng không cần Goship thật.
+- Endpoint webhook: `POST /api/v1/shipping/goship/webhook` (public, server xác thực HMAC).
 
 ---
 
@@ -727,6 +879,10 @@ class OrderResp {
 | Dev mock | `PAYOS_MODE=mock` | Checkout URL trỏ về `localhost:8080/dev/payos/mock-checkout` |
 | Dev real | `PAYOS_MODE=production` (cần creds) | Checkout URL là `https://pay.payos.vn/web/...` thật |
 | Prod | giống Dev real + domain ổn định | |
+| Shipping provider | `SHIPPING_PROVIDER=goship` (hoặc `flat`) | `goship` → phí ship + carrier options thật; `flat` → 1 option phí phẳng (`carrier:"flat"`) |
+| Goship mode | `GOSHIP_MODE=mock\|sandbox\|production` | `mock` → location/rates/shipment giả lập + bật `/dev/goship/simulate`; production cần `GOSHIP_TOKEN`/`GOSHIP_CLIENT_SECRET` |
+
+> Khi `SHIPPING_PROVIDER=flat` hoặc `GOSHIP_MODE=mock`, `shipping_options[].carrier` sẽ là giá trị giả lập (`"flat"` hoặc tên hiển thị mock như `"Giao Hàng Nhanh (v3)"`) — FE vẫn xử lý đồng nhất: hiển thị options, gửi lại `carrier` đã chọn.
 
 **Để Flutter test với PayOS thật từ máy dev:**
 1. Bật server với `PAYOS_MODE=production` (đã có creds trong `.env`)
@@ -753,12 +909,21 @@ Trả `{"status":"ok"}` — không cần auth.
 - [ ] Register/login screens → `AuthRepository`.
 - [ ] Catalog screens dùng public endpoints (không gửi Authorization).
 - [ ] Cart/wishlist/address screens — auth required.
-- [ ] Checkout flow: preview → place_order → (nếu PayOS) WebView → poll detail.
-- [ ] Handle 401 silently (interceptor đã làm); 403 → "không có quyền"; 409 dựa vào subcode.
+- [ ] **Address form: dropdown phân cấp** dùng `/locations/cities → /districts → /wards`; gửi kèm `city_code/district_code/ward_code` (+ `label`) khi tạo/sửa địa chỉ.
+- [ ] Checkout flow: preview → **khách chọn carrier mỗi brand** từ `sub_orders[].shipping_options` → place_order với `shipping_selections` → (nếu PayOS) WebView → poll detail.
+- [ ] Xử lý `address_incomplete=true` ở preview → ép khách cập nhật địa chỉ (bổ sung mã) trước khi đặt.
+- [ ] Order detail: hiển thị **tracking** mỗi sub-order (`status`, `shipping_carrier`, `tracking_url`, `shipping_status_text`); poll lại để thấy cập nhật từ webhook Goship.
+- [ ] (Brand app) màn fulfillment: list `/brand/me/orders`, confirm, ship (chọn carrier) — §4.9.
+- [ ] Handle 401 silently (interceptor đã làm); 403 → "không có quyền"; 409 (`carrier_unavailable`/cancel subcode) → preview lại / báo lý do.
 - [ ] Hiển thị warnings từ `/checkout/preview.warnings` (low stock / unavailable).
 - [ ] Test full flow trên Android emulator (10.0.2.2) + iOS sim (localhost).
 - [ ] Khi đẩy build prod, đảm bảo `baseUrl` đổi sang HTTPS và `PAYOS_MODE=production` ở server.
 
 ---
 
-**Liên hệ backend:** đọc spec `docs/superpowers/specs/2026-05-24-sprint-3-orders-checkout-payos-design.md` để hiểu lifecycle order/payment. Nếu gặp lỗi không có trong tài liệu này, kiểm tra `internal/<module>/handler/handler.go` để xem code-string chính xác.
+**Liên hệ backend:** đọc spec để hiểu lifecycle:
+- Order/payment: `docs/superpowers/specs/2026-05-24-sprint-3-orders-checkout-payos-design.md`
+- Goship rates + địa chỉ + carrier checkout: `docs/superpowers/specs/2026-06-03-goship-shipping-rates-design.md`
+- Goship fulfillment (confirm/ship + tracking webhook): `docs/superpowers/specs/2026-06-04-goship-fulfillment-design.md`
+
+Nếu gặp lỗi không có trong tài liệu này, kiểm tra `internal/<module>/handler/` để xem code-string chính xác.

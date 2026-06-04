@@ -81,6 +81,9 @@ func (f *fakeAddrRepo) Update(ctx context.Context, id, brandID uuid.UUID, req *d
 func (f *fakeAddrRepo) SoftDelete(ctx context.Context, id, brandID uuid.UUID) error {
 	return repo.ErrNotFound
 }
+func (f *fakeAddrRepo) PrimaryAddress(ctx context.Context, brandID uuid.UUID) (*domain.BrandAddress, error) {
+	return nil, repo.ErrNotFound
+}
 
 func newTestLocSvc() *location.Service {
 	return location.NewService(goship.NewMockClient(), 24*time.Hour)

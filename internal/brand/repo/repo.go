@@ -30,6 +30,7 @@ type AddressRepo interface {
 	Create(ctx context.Context, brandID uuid.UUID, req *domain.CreateAddressRequest) (*domain.BrandAddress, error)
 	Update(ctx context.Context, id, brandID uuid.UUID, req *domain.UpdateAddressRequest) (*domain.BrandAddress, error)
 	SoftDelete(ctx context.Context, id, brandID uuid.UUID) error
+	PrimaryAddress(ctx context.Context, brandID uuid.UUID) (*domain.BrandAddress, error)
 }
 
 // ErrSlugTaken is returned by BrandRepo.Update when the new slug collides.

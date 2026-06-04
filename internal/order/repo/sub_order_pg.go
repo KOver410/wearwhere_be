@@ -4,6 +4,7 @@ package repo
 import (
 	"context"
 	"errors"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -112,4 +113,137 @@ func (r *SubOrderPG) CancelAllByOrderID(ctx context.Context, db DBTX, orderID uu
 		  WHERE order_id = $1 AND status != 'cancelled'`,
 		orderID)
 	return err
+}
+
+func (r *SubOrderPG) GetByID(ctx context.Context, id uuid.UUID) (*domain.SubOrder, error) {
+	row := r.db.QueryRow(ctx,
+		`SELECT s.id, s.order_id, s.brand_id, s.subtotal_vnd, s.shipping_fee_vnd, s.total_vnd,
+		        s.status, s.tracking_no, s.shipping_carrier, s.shipping_provider,
+		        s.confirmed_at, s.shipped_at, s.delivered_at, s.cancelled_at,
+		        s.shipping_cost_vnd, s.goship_shipment_code, s.tracking_url, s.shipping_status_text,
+		        s.created_at, s.updated_at, b.slug, b.name
+		   FROM sub_orders s JOIN brands b ON b.id = s.brand_id
+		  WHERE s.id = $1`, id)
+	return scanSubOrder(row, true)
+}
+
+func (r *SubOrderPG) GetByTrackingNoForUpdate(ctx context.Context, db DBTX, trackingNo string) (*domain.SubOrder, error) {
+	if db == nil {
+		db = r.db
+	}
+	row := db.QueryRow(ctx,
+		`SELECT `+subOrderCols+` FROM sub_orders WHERE tracking_no = $1 FOR UPDATE`, trackingNo)
+	return scanSubOrder(row, false)
+}
+
+func (r *SubOrderPG) ListByBrand(ctx context.Context, brandID uuid.UUID, statuses []domain.SubOrderStatus, page, pageSize int) ([]*domain.SubOrder, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	args := []any{brandID}
+	where := "s.brand_id = $1"
+	if len(statuses) > 0 {
+		ss := make([]string, len(statuses))
+		for i, st := range statuses {
+			ss[i] = string(st)
+		}
+		args = append(args, ss)
+		where += " AND s.status = ANY($2)"
+	}
+	var total int
+	if err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM sub_orders s WHERE `+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	args = append(args, pageSize, (page-1)*pageSize)
+	rows, err := r.db.Query(ctx,
+		`SELECT s.id, s.order_id, s.brand_id, s.subtotal_vnd, s.shipping_fee_vnd, s.total_vnd,
+		        s.status, s.tracking_no, s.shipping_carrier, s.shipping_provider,
+		        s.confirmed_at, s.shipped_at, s.delivered_at, s.cancelled_at,
+		        s.shipping_cost_vnd, s.goship_shipment_code, s.tracking_url, s.shipping_status_text,
+		        s.created_at, s.updated_at, b.slug, b.name
+		   FROM sub_orders s JOIN brands b ON b.id = s.brand_id
+		  WHERE `+where+`
+		  ORDER BY s.created_at DESC
+		  LIMIT $`+strconv.Itoa(len(args)-1)+` OFFSET $`+strconv.Itoa(len(args)), args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var out []*domain.SubOrder
+	for rows.Next() {
+		so, err := scanSubOrder(rows, true)
+		if err != nil {
+			return nil, 0, err
+		}
+		out = append(out, so)
+	}
+	return out, total, rows.Err()
+}
+
+func (r *SubOrderPG) UpdateConfirmed(ctx context.Context, db DBTX, id uuid.UUID) error {
+	if db == nil {
+		db = r.db
+	}
+	_, err := db.Exec(ctx,
+		`UPDATE sub_orders SET status='confirmed', confirmed_at=NOW(), updated_at=NOW()
+		  WHERE id=$1 AND status='pending'`, id)
+	return err
+}
+
+func (r *SubOrderPG) UpdateShipped(ctx context.Context, db DBTX, id uuid.UUID, trackingNo, goshipCode, carrier string, costVND int64, trackingURL string) error {
+	if db == nil {
+		db = r.db
+	}
+	_, err := db.Exec(ctx,
+		`UPDATE sub_orders
+		    SET status='shipped', shipped_at=NOW(), updated_at=NOW(),
+		        tracking_no=$2, goship_shipment_code=$3, shipping_carrier=$4,
+		        shipping_cost_vnd=$5, tracking_url=$6
+		  WHERE id=$1 AND status='confirmed'`,
+		id, trackingNo, goshipCode, carrier, costVND, trackingURL)
+	return err
+}
+
+func (r *SubOrderPG) UpdateDelivered(ctx context.Context, db DBTX, id uuid.UUID, statusText, trackingURL string) error {
+	if db == nil {
+		db = r.db
+	}
+	_, err := db.Exec(ctx,
+		`UPDATE sub_orders
+		    SET status='delivered', delivered_at=NOW(), updated_at=NOW(),
+		        shipping_status_text=$2, tracking_url=COALESCE(NULLIF($3,''), tracking_url)
+		  WHERE id=$1 AND status <> 'delivered'`,
+		id, statusText, trackingURL)
+	return err
+}
+
+func (r *SubOrderPG) UpdateShippingStatus(ctx context.Context, db DBTX, id uuid.UUID, statusText, trackingURL string) error {
+	if db == nil {
+		db = r.db
+	}
+	_, err := db.Exec(ctx,
+		`UPDATE sub_orders
+		    SET shipping_status_text=$2, tracking_url=COALESCE(NULLIF($3,''), tracking_url),
+		        status=CASE WHEN status='confirmed' THEN 'shipped' ELSE status END,
+		        shipped_at=CASE WHEN status='confirmed' AND shipped_at IS NULL THEN NOW() ELSE shipped_at END,
+		        updated_at=NOW()
+		  WHERE id=$1 AND status NOT IN ('delivered','cancelled')`,
+		id, statusText, trackingURL)
+	return err
+}
+
+func (r *SubOrderPG) AllDelivered(ctx context.Context, db DBTX, orderID uuid.UUID) (bool, error) {
+	if db == nil {
+		db = r.db
+	}
+	var notDelivered int
+	err := db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM sub_orders WHERE order_id=$1 AND status <> 'delivered'`, orderID).Scan(&notDelivered)
+	if err != nil {
+		return false, err
+	}
+	return notDelivered == 0, nil
 }

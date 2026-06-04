@@ -137,6 +137,14 @@ func (r *AddressPG) Update(ctx context.Context, id, brandID uuid.UUID, req *doma
 	return scanAddress(row)
 }
 
+func (r *AddressPG) PrimaryAddress(ctx context.Context, brandID uuid.UUID) (*domain.BrandAddress, error) {
+	row := r.db.QueryRow(ctx,
+		`SELECT `+addrCols+` FROM brand_addresses
+		  WHERE brand_id=$1 AND is_primary=TRUE AND deleted_at IS NULL
+		  ORDER BY created_at ASC LIMIT 1`, brandID)
+	return scanAddress(row)
+}
+
 func (r *AddressPG) PrimaryAddressCodes(ctx context.Context, brandID uuid.UUID) (string, string, error) {
 	var city, district *string
 	err := r.db.QueryRow(ctx,

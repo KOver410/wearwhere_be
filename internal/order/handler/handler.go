@@ -2,6 +2,8 @@
 package handler
 
 import (
+	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -139,7 +141,12 @@ func (h *Handler) CancelOrder(c *gin.Context) {
 
 	orderNo := c.Param("order_no")
 	var req domain.CancelOrderReq
-	_ = c.ShouldBindJSON(&req)
+	// The cancel reason is optional: accept an empty body (gin returns io.EOF),
+	// but reject a malformed non-empty body the same way PlaceOrder does.
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		httpx.Error(c, http.StatusBadRequest, "INVALID_BODY", "Invalid request body")
+		return
+	}
 
 	resp, err := h.order.Cancel(c.Request.Context(), userID, orderNo, req.Reason)
 	if err != nil {

@@ -52,6 +52,7 @@ func TestWriteOrderError_StatusAndCode(t *testing.T) {
 		{"order not found", domain.ErrOrderNotFound, 404, "ORDER_NOT_FOUND"},
 		{"cancel not allowed", domain.ErrCancelNotAllowed, 409, "CANCEL_NOT_ALLOWED"},
 		{"cancel paid not supported", domain.ErrCancelPaidNotSupported, 409, "CANCEL_NOT_ALLOWED"},
+		{"idor", domain.ErrIDOR, 403, "FORBIDDEN"},
 		{"unknown", errors.New("boom"), 500, "INTERNAL_ERROR"},
 	}
 
@@ -111,9 +112,12 @@ func TestWriteOrderError_NoDetailsForSimpleCases(t *testing.T) {
 		domain.ErrPayosLinkCreate,
 		domain.ErrOrderNotFound,
 	} {
-		_, env := decodeError(t, err)
-		_, hasDetails := env["details"]
-		assert.False(t, hasDetails, "%v should not carry details", err)
+		err := err
+		t.Run(err.Error(), func(t *testing.T) {
+			_, env := decodeError(t, err)
+			_, hasDetails := env["details"]
+			assert.False(t, hasDetails, "%v should not carry details", err)
+		})
 	}
 }
 

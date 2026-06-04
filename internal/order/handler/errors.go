@@ -18,6 +18,13 @@ const refreshCartReason = "Refresh cart and retry"
 // the shared HTTP error envelope. Matching uses errors.Is so wrapped sentinels
 // are handled. Unknown errors collapse to a generic 500 and never expose
 // err.Error() to the client.
+//
+// MAINTENANCE: every order domain sentinel (see internal/order/domain/errors.go)
+// MUST have an explicit case in this switch. Any error without a case
+// intentionally falls through to the default branch and is reported as
+// 500 INTERNAL_ERROR — so a missing case silently degrades a known failure into
+// a generic server error. Add a case here whenever a new domain sentinel is
+// introduced.
 func writeOrderError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, domain.ErrCartEmpty):
@@ -50,6 +57,10 @@ func writeOrderError(c *gin.Context, err error) {
 		httpx.ErrorWithDetails(c, http.StatusConflict, "CANCEL_NOT_ALLOWED",
 			"This order cannot be cancelled in its current state",
 			map[string]any{"subcode": "not_allowed"})
+	case errors.Is(err, domain.ErrIDOR):
+		// Currently unreachable in the order service, but mapped defensively so a
+		// future authz/ownership failure surfaces as 403 instead of a 500.
+		httpx.Error(c, http.StatusForbidden, "FORBIDDEN", "You do not have access to this resource")
 	default:
 		httpx.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error")
 	}

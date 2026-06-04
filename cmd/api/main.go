@@ -16,6 +16,7 @@ import (
 	"github.com/wearwhere/wearwhere_be/internal/auth/repo"
 	"github.com/wearwhere/wearwhere_be/internal/auth/service"
 	"github.com/wearwhere/wearwhere_be/internal/config"
+	"github.com/wearwhere/wearwhere_be/internal/shared/httpmw"
 	jwtsvc "github.com/wearwhere/wearwhere_be/internal/shared/jwt"
 	"github.com/wearwhere/wearwhere_be/internal/shared/mailer"
 	"github.com/wearwhere/wearwhere_be/internal/shared/postgres"
@@ -250,6 +251,7 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(gin.Logger())
+	r.Use(httpmw.CORS(cfg.CORS.AllowedOrigins))
 
 	// Limit multipart form memory so large uploads spill to temp files rather
 	// than being held entirely in RAM. Per-file size enforcement stays in the

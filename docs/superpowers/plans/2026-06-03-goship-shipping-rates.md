@@ -71,7 +71,7 @@ cmd/api/main.go                                                   MODIFY  wire g
 
 ## Phase 1 — Schema & Domain Foundation
 
-### Task 1: Migrations for location codes, variant dimensions, sub-order carrier
+### Task 1: Migrations for location codes, variant dimensions, sub-order carrier ✅ DONE (78837a8)
 
 **Files:**
 - Create: `db/migrations/000027_add_location_codes_to_customer_addresses.up.sql` / `.down.sql`
@@ -164,7 +164,9 @@ git commit -m "feat(db): location codes on addresses, dimensions on variants, sh
 
 ---
 
-### Task 2: Add code/dimension fields to domain structs + repo read/write
+### Task 2: Add code/dimension fields to domain structs + repo read/write ✅ DONE (6d54ecb)
+
+> Review notes carried forward: (a) address repo `Update` uses `COALESCE($n, col)` with nil codes — Task 15 must pass the request codes through `Update` (and may switch to direct assignment since codes are required); (b) `ShippingAddress` construction sites in checkout_service.go / order_service.go must copy the 3 codes — done in Tasks 13/14.
 
 **Files:**
 - Modify: `internal/customeraddr/domain/address.go` (add 3 code fields)
@@ -231,7 +233,7 @@ git commit -m "feat(domain): location-code and variant-dimension fields wired th
 
 ## Phase 2 — Config
 
-### Task 3: GoshipConfig + ShippingConfig.Provider + .env.example
+### Task 3: GoshipConfig + ShippingConfig.Provider + .env.example ✅ DONE (7954255)
 
 **Files:**
 - Modify: `internal/config/config.go`
@@ -339,7 +341,7 @@ git commit -m "feat(config): GoshipConfig + defaults + .env.example"
 
 ## Phase 3 — Goship Client
 
-### Task 4: Client interface + DTOs
+### Task 4: Client interface + DTOs ✅ DONE (df37574)
 
 **Files:**
 - Create: `internal/shipping/goship/client.go`
@@ -421,7 +423,7 @@ git commit -m "feat(goship): client interface + DTOs"
 
 ---
 
-### Task 5: Mock client
+### Task 5: Mock client ✅ DONE (8d87e51)
 
 **Files:**
 - Create: `internal/shipping/goship/client_mock.go`
@@ -544,7 +546,7 @@ git commit -m "feat(goship): deterministic mock client + tests"
 
 ---
 
-### Task 6: HTTP client + factory + real sandbox test
+### Task 6: HTTP client + factory + real sandbox test ✅ DONE (1e35db6) — sandbox reconciliation deferred to Task 17
 
 **Files:**
 - Create: `internal/shipping/goship/client_http.go`
@@ -795,7 +797,7 @@ git commit -m "feat(goship): HTTP client + factory + gated sandbox integration t
 
 ## Phase 4 — Chargeable Weight
 
-### Task 7: weight.Aggregate (parcel builder)
+### Task 7: weight.Aggregate (parcel builder) ✅ DONE (486bcc2)
 
 Goship applies volumetric weight server-side from the `weight` + `width/height/length` we send (divisor ≈6000), so this package only **aggregates** a sub-order's items into one parcel — it does NOT pre-compute chargeable weight.
 
@@ -916,7 +918,7 @@ git commit -m "feat(shipping): parcel aggregator (weight/dims); Goship applies v
 
 ## Phase 5 — Provider Interface & Goship Provider
 
-### Task 8: ShippingOption + Quote interface + flat-rate adapt + factory
+### Task 8: ShippingOption + Quote interface + flat-rate adapt + factory ✅ DONE (fbb0068) — full build red until Task 14
 
 **Files:**
 - Create: `internal/shipping/domain/option.go`
@@ -1047,7 +1049,7 @@ git commit -m "feat(shipping): Quote(multi-option) interface; flat-rate returns 
 
 ---
 
-### Task 9: GoshipProvider
+### Task 9: GoshipProvider ✅ DONE (6221771) — incl. pgx.ErrNoRows→ErrPickupIncomplete fix
 
 **Files:**
 - Create: `internal/shipping/provider/goship_provider.go`
@@ -1244,7 +1246,7 @@ git commit -m "feat(shipping): GoshipProvider maps rates to options + brand pick
 
 ## Phase 6 — Location Endpoints
 
-### Task 10: Location service with TTL cache
+### Task 10: Location service with TTL cache ✅ DONE (d0dc2ff)
 
 **Files:**
 - Create: `internal/shipping/location/service.go`
@@ -1372,7 +1374,7 @@ git commit -m "feat(location): cached cities/districts/wards service over goship
 
 ---
 
-### Task 11: Location HTTP handlers + routes
+### Task 11: Location HTTP handlers + routes ✅ DONE (fdcaaa1)
 
 **Files:**
 - Create: `internal/shipping/location/handler.go`
@@ -1466,7 +1468,7 @@ git commit -m "feat(location): GET cities/districts/wards endpoints"
 
 ## Phase 7 — Checkout & Order Integration
 
-### Task 12: DTO + error additions
+### Task 12: DTO + error additions ✅ DONE (59eea10, with Task 13)
 
 **Files:**
 - Modify: `internal/order/domain/dto.go`
@@ -1526,7 +1528,7 @@ Expected: FAIL — `checkout_service.go`/`order_service.go` still call removed `
 
 ---
 
-### Task 13: Checkout preview uses Quote + address-incomplete gate
+### Task 13: Checkout preview uses Quote + address-incomplete gate ✅ DONE (59eea10)
 
 **Files:**
 - Modify: `internal/order/service/checkout_service.go`
@@ -1630,7 +1632,9 @@ git commit -m "feat(checkout): preview returns per-brand carrier options + addre
 
 ---
 
-### Task 14: PlaceOrder re-quotes by chosen carrier and stores shipping_carrier
+### Task 14: PlaceOrder re-quotes by chosen carrier and stores shipping_carrier ✅ DONE (52736aa + fix 8b24d54) — full build GREEN; main.go factory wiring also done here
+
+> Note: Task 14 already wired `cmd/api/main.go` GoshipDeps into `provider.NewFromConfig` (needed for build). Task 16 remaining work = location routes mount + inject location.Service into address services.
 
 **Files:**
 - Modify: `internal/order/service/order_service.go`
@@ -1760,7 +1764,7 @@ git commit -m "feat(order): re-quote chosen carrier at place-order; store shippi
 
 ---
 
-### Task 15: Address create/update accept + validate location codes
+### Task 15: Address create/update accept + validate location codes ✅ DONE (a7e47db) — customer + brand; repo now passes req codes (resolves Task 2 COALESCE note)
 
 **Files:**
 - Modify: customer address request DTO + service create/update (search: `grep -rln "RecipientName" internal/customeraddr`)
@@ -1824,7 +1828,7 @@ git commit -m "feat(address): require + validate city/district/ward codes on cre
 
 ## Phase 8 — Wiring & End-to-End
 
-### Task 16: Wire everything in main.go
+### Task 16: Wire everything in main.go ✅ DONE (c221ec5 + factory part in 52736aa) — locSvc + routes + address-service injection
 
 **Files:**
 - Modify: `cmd/api/main.go`
@@ -1888,7 +1892,12 @@ git commit -m "feat(wiring): goship client + provider + location routes in main"
 
 ---
 
-### Task 17: Manual sandbox smoke + spec contract reconciliation
+### Task 17: Manual sandbox smoke + spec contract reconciliation ⏳ DEFERRED — needs a real `GOSHIP_TOKEN` (sandbox). Gated test `goship_real` skips without it; run when the token is available, then reconcile client_http.go + spec §11.
+
+> **Post-implementation review notes (tracked, not blocking Spec A):**
+> - **COD amount (Important):** `order_service.go` sends `codVND = g.subtotal` (merchandise only, not incl. shipping) to Goship rates. Deliberate Spec A simplification (circular: need fee to know COD). Refine in Spec B at shipment-creation (two-pass quote, or subtotal+fee). 
+> - **Minor:** `containsCode` duplicated in customeraddr/brand services (could extract); `toCalcItems` in checkout preview uses default dims (preview vs place fee may differ slightly for variants with real dims); location cache has a benign cold-miss stampede (24h TTL → startup-only). 
+> - Fixed during review: provider-name now persisted accurately (8b24d54); pgx.ErrNoRows→ErrPickupIncomplete (6221771); address codes optional on UPDATE to preserve PATCH semantics (d8b991b).
 
 **Files:**
 - Modify (if needed): `internal/shipping/goship/client_http.go` (field/path fixes)

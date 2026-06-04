@@ -18,10 +18,14 @@ func TestMock_Rates_DeterministicByWeight(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("want 3 carriers, got %d", len(got))
 	}
-	// ghnv3 base 15000 + 5000/kg * ceil(1.5kg=2) = 25000
+	// "Giao Hàng Nhanh (v3)" base 15000 + 5000/kg * ceil(1.5kg=2) = 25000.
+	// Mock mirrors prod: Carrier == CarrierName (display name, no short code).
 	for _, r := range got {
-		if r.Carrier == "ghnv3" && r.FeeVND != 25000 {
-			t.Errorf("ghnv3 fee = %d, want 25000", r.FeeVND)
+		if r.Carrier == "Giao Hàng Nhanh (v3)" && r.FeeVND != 25000 {
+			t.Errorf("GHN fee = %d, want 25000", r.FeeVND)
+		}
+		if r.Carrier != r.CarrierName {
+			t.Errorf("Carrier should equal CarrierName (no short code): %+v", r)
 		}
 		if r.ID == "" || r.CarrierName == "" {
 			t.Errorf("rate missing id/name: %+v", r)

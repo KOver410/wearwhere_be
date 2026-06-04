@@ -136,7 +136,7 @@ type Client interface {
     Rates(ctx, RateReq) ([]Rate, error)  // RateReq carries string codes + weight/dims + cod/amount
 }
 ```
-Mock returns a fixed carrier set (`ghnv3`/`ghtk`/`vtp`) with deterministic fees so tests are stable.
+Mock returns a fixed carrier set with deterministic fees so tests are stable. Per the confirmed contract (§11), the mock mirrors prod: `Carrier == CarrierName == display name` (e.g. `Giao Hàng Nhanh (v3)`, `Vietnam Post`, `Viettel Post`) — no short codes.
 
 ## 6. Flows
 
@@ -205,9 +205,17 @@ Goship HTTP client uses a context timeout and returns typed errors; transient fa
 - **Integration (`integration` tag):** checkout preview returns options per brand; place-order re-quotes & stores `shipping_carrier`/fee; address-incomplete blocks place; carrier-unavailable path.
 - **Real sandbox (`goship_real` tag):** `Cities/Districts/Wards` return data; `Rates` returns ≥1 carrier for a known HCMC→Hanoi route; skips if `GOSHIP_TOKEN` unset (mirrors `payos_real`).
 
-## 11. Open Items Pinned at Implementation
-- Confirmed from doc.goship.io: base URL, `/login`, `/cities|districts|wards`, `/rates` shapes, carrier codes, static ~100yr token. Remaining to verify against the live sandbox account:
-- Whether the `/rates` response object exposes a carrier **short code** field (e.g. `carrier`) in addition to `carrier_name`. If not, carrier selection keys on `carrier_name`.
-- Exact JSON envelope key for location/rate lists (`data`) and whether location `id` is returned as string or number (treat as string).
-- Production base URL (not published in docs).
-- Whether the sandbox enforces COD value rules affecting `total_fee` for `cod=0` (PayOS) vs `cod>0` (COD) orders.
+## 11. Confirmed Contract (verified against the live API — Task 17, 2026-06-04)
+
+Verified with a real production token against **`https://api.goship.io/api/v2`** (the sandbox host `sandbox.goship.io` returned 401 for this token — the token is production-scoped). `GET /cities` and `POST /rates` both parse cleanly into the implemented client — **no `client_http.go` changes were required**.
+
+- **Base URL:** production = `https://api.goship.io/api/v2`. (Set per-env via `GOSHIP_BASE_URL`; config default remains the sandbox URL.)
+- **Auth:** static `Authorization: Bearer <token>`. The provided token's `exp` is ~2036 (effectively long-lived). `/login` exchange not needed when a token is supplied.
+- **`/cities`** → `{code,status,data:[{id (numeric string), name, ...}]}`. 63 cities; e.g. **Hà Nội `id="100000"`**. Our `json.Number`→string handling works.
+- **`/cities/{id}/districts`** → `data:[{id, name, city_id, support_carriers:[...]}]`. District `id` is a string (e.g. `"100300"`). Each district lists `support_carriers`, e.g. `["vtp","kerry","ov","supership","ghnv3","vnp","hola","snappy","nhattin","shopee","jnt","ems","jnt2"]`. **GHN = `ghnv3`** confirmed.
+- **`/rates`** → `data:[{id, carrier_name, carrier_logo, service, expected, cod_fee, total_fee, total_amount}]`. **There is NO short carrier-code field** — only `carrier_name` (a display name). For a Hà Nội intra-city route the carriers returned were: `Vietnam Post`, `SPX Express`, `Best Express`, `Giao Hàng Nhanh (v3)`, `J&T Express 1`.
+  - **Decision:** carrier selection therefore keys on the **display name** (`carrier_name`). The HTTP client sets `Rate.Carrier = carrier_name` (fallback already in place); the **mock now mirrors this** (`Carrier == CarrierName == display name`, no short codes) so dev/test and prod use the same identifier shape. Preview and place-order re-quote use the same client/mode, so the round-trip match is consistent.
+- **Volumetric:** applied server-side by Goship from the `weight` + `width/height/length` we send (we do not pre-compute).
+- **COD:** `parcel.cod`/`parcel.amount` accepted. Spec A sends `cod = sub-order subtotal` for COD (0 for PayOS) — see tracked limitation (refine in Spec B to include shipping in the collected amount).
+
+Remaining (Spec B): shipment creation (`POST /shipments`) field contract, tracking, webhook `x-goship-hmac-sha256` verification (needs `GOSHIP_CLIENT_SECRET`), cancel.

@@ -279,9 +279,11 @@ func setupGoshipOrder(t *testing.T, qty int, price float64) testSetup {
 
 func TestPlaceOrder_Goship_StoresChosenCarrierFee(t *testing.T) {
 	// qty=1 variant, default weight 500g → ceil(500/1000)=1 kg
-	// ghnv3 fee = 15000 + 5000*1 = 20000 VND
+	// "Giao Hàng Nhanh (v3)" fee = 15000 + 5000*1 = 20000 VND.
+	// Mock mirrors prod: carrier identifier is the display name (Goship returns no short code).
 	const qty = 1
 	const price = 100000.0
+	const ghnCarrier = "Giao Hàng Nhanh (v3)"
 	const expectedGhnFee int64 = 20000
 
 	s := setupGoshipOrder(t, qty, price)
@@ -291,7 +293,7 @@ func TestPlaceOrder_Goship_StoresChosenCarrierFee(t *testing.T) {
 		AddressID:     s.AddrID,
 		PaymentMethod: domain.PaymentMethodCOD,
 		ShippingSelections: []domain.ShippingSelection{
-			{BrandID: s.BrandID, Carrier: "ghnv3"},
+			{BrandID: s.BrandID, Carrier: ghnCarrier},
 		},
 	})
 	require.NoError(t, err)
@@ -308,7 +310,7 @@ func TestPlaceOrder_Goship_StoresChosenCarrierFee(t *testing.T) {
 		  LIMIT 1`,
 		s.UserID).Scan(&carrier, &fee)
 	require.NoError(t, err)
-	require.Equal(t, "ghnv3", carrier)
+	require.Equal(t, ghnCarrier, carrier)
 	require.Equal(t, expectedGhnFee, fee)
 }
 

@@ -27,19 +27,23 @@ func (m *MockClient) Rates(_ context.Context, r RateReq) ([]Rate, error) {
 	if kg < 1 {
 		kg = 1
 	}
+	// Mirror the real Goship contract: the /rates response exposes NO short carrier
+	// code — only a display name (confirmed against api.goship.io). Our HTTP client
+	// sets Carrier = CarrierName in that case, so the mock does the same here
+	// (Carrier == CarrierName == display name).
 	carriers := []struct {
-		code, name string
+		name        string
 		base, perKg int64
 	}{
-		{"ghnv3", "Giao Hàng Nhanh", 15000, 5000},
-		{"ghtk", "Giao Hàng Tiết Kiệm", 12000, 4000},
-		{"vtp", "Viettel Post", 18000, 6000},
+		{"Giao Hàng Nhanh (v3)", 15000, 5000},
+		{"Vietnam Post", 12000, 4000},
+		{"Viettel Post", 18000, 6000},
 	}
 	out := make([]Rate, 0, len(carriers))
 	for i, c := range carriers {
 		out = append(out, Rate{
-			ID:          fmt.Sprintf("mock-rate-%s-%d", c.code, i),
-			Carrier:     c.code,
+			ID:          fmt.Sprintf("mock-rate-%d", i),
+			Carrier:     c.name,
 			CarrierName: c.name,
 			Service:     "standard",
 			FeeVND:      c.base + c.perKg*int64(kg),

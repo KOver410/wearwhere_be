@@ -492,11 +492,14 @@ func orderToResp(o *domain.Order) *domain.OrderResp {
 				Slug: so.BrandSlug,
 				Name: so.BrandName,
 			},
-			SubtotalVND:    so.SubtotalVND,
-			ShippingFeeVND: so.ShippingFeeVND,
-			TotalVND:       so.TotalVND,
-			Status:         so.Status,
-			TrackingNo:     so.TrackingNo,
+			SubtotalVND:        so.SubtotalVND,
+			ShippingFeeVND:     so.ShippingFeeVND,
+			TotalVND:           so.TotalVND,
+			Status:             so.Status,
+			TrackingNo:         so.TrackingNo,
+			ShippingCarrier:    so.ShippingCarrier,
+			TrackingURL:        so.TrackingURL,
+			ShippingStatusText: so.ShippingStatusText,
 		}
 		for _, it := range so.Items {
 			sr.Items = append(sr.Items, domain.OrderItemResp{

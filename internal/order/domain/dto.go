@@ -102,8 +102,11 @@ type SubOrderResp struct {
 	ShippingFeeVND int64           `json:"shipping_fee_vnd"`
 	TotalVND       int64           `json:"total_vnd"`
 	Status         SubOrderStatus  `json:"status"`
-	TrackingNo     *string         `json:"tracking_no"`
-	Items          []OrderItemResp `json:"items"`
+	TrackingNo         *string         `json:"tracking_no"`
+	ShippingCarrier    *string         `json:"shipping_carrier"`
+	TrackingURL        *string         `json:"tracking_url"`
+	ShippingStatusText *string         `json:"shipping_status_text"`
+	Items              []OrderItemResp `json:"items"`
 }
 
 type OrderResp struct {
@@ -148,4 +151,43 @@ type OrderListResp struct {
 
 type CancelOrderReq struct {
 	Reason string `json:"reason" binding:"max=200"`
+}
+
+type ShipReq struct {
+	Carrier string `json:"carrier"` // optional override; empty = use stored shipping_carrier
+}
+
+type BrandSubOrderListItem struct {
+	SubOrderID uuid.UUID      `json:"sub_order_id"`
+	OrderNo    string         `json:"order_no"`
+	Status     SubOrderStatus `json:"status"`
+	Recipient  string         `json:"recipient"`
+	TotalVND   int64          `json:"total_vnd"`
+	ItemCount  int            `json:"item_count"`
+	TrackingNo *string        `json:"tracking_no"`
+	CreatedAt  time.Time      `json:"created_at"`
+}
+
+type BrandSubOrderListResp struct {
+	Data       []BrandSubOrderListItem `json:"data"`
+	Page       int                     `json:"page"`
+	PageSize   int                     `json:"page_size"`
+	Total      int                     `json:"total"`
+	TotalPages int                     `json:"total_pages"`
+}
+
+type BrandSubOrderDetailResp struct {
+	SubOrderID         uuid.UUID       `json:"sub_order_id"`
+	OrderNo            string          `json:"order_no"`
+	Status             SubOrderStatus  `json:"status"`
+	SubtotalVND        int64           `json:"subtotal_vnd"`
+	ShippingFeeVND     int64           `json:"shipping_fee_vnd"`
+	TotalVND           int64           `json:"total_vnd"`
+	ShippingCarrier    *string         `json:"shipping_carrier"`
+	TrackingNo         *string         `json:"tracking_no"`
+	TrackingURL        *string         `json:"tracking_url"`
+	ShippingStatusText *string         `json:"shipping_status_text"`
+	ShippingAddress    ShippingAddress `json:"shipping_address"`
+	Items              []OrderItemResp `json:"items"`
+	CreatedAt          time.Time       `json:"created_at"`
 }

@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	branddomain "github.com/wearwhere/wearwhere_be/internal/brand/domain"
 	"github.com/wearwhere/wearwhere_be/internal/order/domain"
@@ -20,7 +19,6 @@ type brandPickupRepo interface {
 }
 
 type FulfillmentService struct {
-	pool      *pgxpool.Pool
 	orderRepo orderrepo.OrderRepo
 	subOrder  orderrepo.SubOrderRepo
 	items     orderrepo.OrderItemRepo
@@ -30,10 +28,10 @@ type FulfillmentService struct {
 }
 
 func NewFulfillmentService(
-	pool *pgxpool.Pool, or orderrepo.OrderRepo, sr orderrepo.SubOrderRepo,
+	or orderrepo.OrderRepo, sr orderrepo.SubOrderRepo,
 	ir orderrepo.OrderItemRepo, gs goship.Service, ba brandPickupRepo, d weight.Defaults,
 ) *FulfillmentService {
-	return &FulfillmentService{pool: pool, orderRepo: or, subOrder: sr, items: ir, goship: gs, brandAddr: ba, defaults: d}
+	return &FulfillmentService{orderRepo: or, subOrder: sr, items: ir, goship: gs, brandAddr: ba, defaults: d}
 }
 
 func (s *FulfillmentService) loadOwned(ctx context.Context, brandID, subOrderID uuid.UUID) (*domain.SubOrder, error) {
@@ -62,6 +60,9 @@ func (s *FulfillmentService) List(ctx context.Context, brandID uuid.UUID, status
 		return nil, err
 	}
 	out := make([]domain.BrandSubOrderListItem, 0, len(rows))
+	// TODO(perf): N+1 — fetches the parent order + items per sub-order. For a
+	// high-traffic brand dashboard, fold order_no/recipient/item_count into the
+	// ListByBrand query (JOIN orders + COUNT) to make this a single round-trip.
 	for _, so := range rows {
 		ord, err := s.orderRepo.GetByID(ctx, so.OrderID)
 		if err != nil {

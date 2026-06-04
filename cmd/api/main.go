@@ -45,6 +45,7 @@ import (
 	producthandler "github.com/wearwhere/wearwhere_be/internal/product/handler"
 	productrepo "github.com/wearwhere/wearwhere_be/internal/product/repo"
 	productservice "github.com/wearwhere/wearwhere_be/internal/product/service"
+	"github.com/wearwhere/wearwhere_be/internal/shared/cors"
 	"github.com/wearwhere/wearwhere_be/internal/shared/storage"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
 	wishlisthandler "github.com/wearwhere/wearwhere_be/internal/wishlist/handler"
@@ -206,6 +207,7 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(gin.Logger())
+	r.Use(cors.Middleware(cfg.CORS.AllowedOrigins))
 
 	// Limit multipart form memory so large uploads spill to temp files rather
 	// than being held entirely in RAM. Per-file size enforcement stays in the

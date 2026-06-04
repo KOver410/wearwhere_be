@@ -13,6 +13,7 @@ import (
 type Config struct {
 	App         AppConfig
 	HTTP        HTTPConfig
+	CORS        CORSConfig
 	DB          DBConfig
 	Redis       RedisConfig
 	JWT         JWTConfig
@@ -34,6 +35,10 @@ type HTTPConfig struct {
 	Port         string
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
+}
+
+type CORSConfig struct {
+	AllowedOrigins []string
 }
 
 type DBConfig struct {
@@ -174,13 +179,16 @@ func Load() (*Config, error) {
 			AllowedMIMEs:   csvOrSingle("STORAGE_ALLOWED_MIMES", ""),
 		},
 	}
+	cfg.CORS = CORSConfig{
+		AllowedOrigins: corsAllowedOrigins(cfg.App.Env),
+	}
 	cfg.Payos = PayosConfig{
 		Mode:        getEnv("PAYOS_MODE", "mock"),
 		ClientID:    getEnv("PAYOS_CLIENT_ID", ""),
 		APIKey:      getEnv("PAYOS_API_KEY", ""),
 		ChecksumKey: getEnv("PAYOS_CHECKSUM_KEY", ""),
-		ReturnURL:   getEnv("PAYOS_RETURN_URL", "http://localhost:3000/checkout/success"),
-		CancelURL:   getEnv("PAYOS_CANCEL_URL", "http://localhost:3000/checkout/cancel"),
+		ReturnURL:   getEnv("PAYOS_RETURN_URL", "http://localhost:5173/order/success"),
+		CancelURL:   getEnv("PAYOS_CANCEL_URL", "http://localhost:5173/cart"),
 		BaseURL:     getEnv("PAYOS_BASE_URL", "http://localhost:8080"),
 	}
 	cfg.Shipping = ShippingConfig{
@@ -256,6 +264,28 @@ func csvOrSingle(primaryKey, legacyKey string) []string {
 		}
 	}
 	return out
+}
+
+func corsAllowedOrigins(appEnv string) []string {
+	raw := strings.TrimSpace(os.Getenv("CORS_ALLOWED_ORIGINS"))
+	if raw == "" {
+		if appEnv == "production" {
+			return []string{}
+		}
+		return []string{
+			"http://localhost:5173",
+			"http://127.0.0.1:5173",
+		}
+	}
+
+	parts := strings.Split(raw, ",")
+	origins := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if origin := strings.TrimSpace(part); origin != "" {
+			origins = append(origins, origin)
+		}
+	}
+	return origins
 }
 
 func getDuration(key string, def time.Duration) time.Duration {

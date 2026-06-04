@@ -46,7 +46,10 @@ import (
 	productrepo "github.com/wearwhere/wearwhere_be/internal/product/repo"
 	productservice "github.com/wearwhere/wearwhere_be/internal/product/service"
 	"github.com/wearwhere/wearwhere_be/internal/shared/storage"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/goship"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/location"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/weight"
 	wishlisthandler "github.com/wearwhere/wearwhere_be/internal/wishlist/handler"
 	wishlistrepo "github.com/wearwhere/wearwhere_be/internal/wishlist/repo"
 	wishlistservice "github.com/wearwhere/wearwhere_be/internal/wishlist/service"
@@ -113,6 +116,18 @@ func main() {
 		log.Fatalf("storage: %v", err)
 	}
 
+	// ── shipping client + location ──
+	goshipClient, err := goship.NewFromConfig(goship.Config{
+		Mode:         cfg.Goship.Mode,
+		Token:        cfg.Goship.Token,
+		ClientSecret: cfg.Goship.ClientSecret,
+		BaseURL:      cfg.Goship.BaseURL,
+	})
+	if err != nil {
+		log.Fatalf("goship client: %v", err)
+	}
+	locSvc := location.NewService(goshipClient, 24*time.Hour)
+
 	// ── services ──
 	tokenSvc := service.NewTokenService(jwtIssuer, sessionRepo, cfg.JWT.RefreshTTL)
 	otpSvc := service.NewOTPService(otpStore, mailerSvc, smsSvc, cfg.Limit)
@@ -120,7 +135,7 @@ func main() {
 	passwordSvc := service.NewPasswordService(userRepo, sessionRepo, otpSvc, authSvc)
 	profileSvc := service.NewProfileService(userRepo, sessionRepo)
 	socialSvc := service.NewSocialService(userRepo, tokenSvc, cfg.OAuth)
-	brandSvc := brandservice.New(brandRepo, addressRepo)
+	brandSvc := brandservice.New(brandRepo, addressRepo, locSvc)
 	productSvc := productservice.New(
 		productRepo, variantRepo, imageRepo,
 		categoryRepo, styleTagRepo,
@@ -128,7 +143,7 @@ func main() {
 	)
 	catalogRepo := productrepo.NewCatalogPG(pgPool)
 	catalogSvc := productservice.NewCatalog(catalogRepo, productRepo)
-	customerAddrSvc := customeraddrservice.New(customerAddrRepo)
+	customerAddrSvc := customeraddrservice.New(customerAddrRepo, locSvc)
 	wishlistSvc := wishlistservice.New(wishlistRepo, productRepo)
 	cartSvc := cartservice.New(cartRepo, variantRepo)
 
@@ -139,9 +154,20 @@ func main() {
 	paymentRepo := paymentrepo.NewPaymentPG(pgPool)
 
 	// ── shipping provider ──
+
 	shippingProvider, err := provider.NewFromConfig(
 		provider.Config{Provider: cfg.Shipping.Provider},
 		brandRepo,
+		&provider.GoshipDeps{
+			Client:     goshipClient,
+			PickupRepo: addressRepo,
+			Defaults: weight.Defaults{
+				WeightG:  cfg.Goship.DefaultItemWeightG,
+				LengthCM: cfg.Goship.DefaultLengthCM,
+				WidthCM:  cfg.Goship.DefaultWidthCM,
+				HeightCM: cfg.Goship.DefaultHeightCM,
+			},
+		},
 	)
 	if err != nil {
 		log.Fatalf("shipping provider: %v", err)
@@ -176,6 +202,24 @@ func main() {
 	webhookSvc := paymentservice.NewWebhookService(
 		pgPool, paymentRepo, orderRepoSvc, subOrderRepo, orderItemRepo, variantRepo, payosClient,
 	)
+
+	// ── Fulfillment + shipping webhook services ──
+	fulfillmentSvc := orderservice.NewFulfillmentService(
+		pgPool,
+		orderRepoSvc, subOrderRepo, orderItemRepo, goshipClient, addressRepo,
+		weight.Defaults{
+			WeightG:  cfg.Goship.DefaultItemWeightG,
+			LengthCM: cfg.Goship.DefaultLengthCM,
+			WidthCM:  cfg.Goship.DefaultWidthCM,
+			HeightCM: cfg.Goship.DefaultHeightCM,
+		},
+	)
+	shippingWebhookSvc := orderservice.NewShippingWebhookService(
+		pgPool, subOrderRepo, orderRepoSvc, orderItemRepo, paymentRepo, variantRepo,
+	)
+	goshipMockMode := cfg.Goship.Mode == "" || cfg.Goship.Mode == "mock"
+	brandFulfilHandler := orderhandler.NewBrandFulfillmentHandler(fulfillmentSvc)
+	shippingWebhookHandler := orderhandler.NewShippingWebhookHandler(shippingWebhookSvc, goshipClient, goshipMockMode)
 
 	// ── Sprint 3 handlers ──
 	orderH := orderhandler.New(checkoutSvc, orderSvc)
@@ -235,6 +279,7 @@ func main() {
 	)
 	brandhandler.Mount(brandGroup, brandDeps)
 	producthandler.MountBrandProducts(brandGroup, brandProductHandler)
+	orderhandler.MountBrand(brandGroup, brandFulfilHandler)
 
 	producthandler.MountCatalog(v1, catalogHandler)
 	brandhandler.MountBrandsPublic(v1, brandsPublicHandler)
@@ -248,11 +293,17 @@ func main() {
 	carthandler.Mount(customerGroup, cartHandler)
 	orderhandler.Mount(customerGroup, orderH)
 
+	location.RegisterRoutes(v1, location.NewHandler(locSvc))
 	paymenthandler.MountPublic(v1, paymentH)
+	orderhandler.MountShippingPublic(v1, shippingWebhookHandler)
 
 	if cfg.Payos.Mode == "mock" {
 		devGroup := r.Group("/dev")
 		paymenthandler.MountDev(devGroup, paymentH)
+	}
+	if cfg.Goship.Mode == "" || cfg.Goship.Mode == "mock" {
+		devGroup := r.Group("/dev")
+		orderhandler.MountShippingDev(devGroup, shippingWebhookHandler)
 	}
 
 	// ── cleanup job ──

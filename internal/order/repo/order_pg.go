@@ -197,6 +197,16 @@ func (r *OrderPG) UpdateStatusOnPaid(ctx context.Context, db DBTX, orderID uuid.
 	return nil
 }
 
+func (r *OrderPG) UpdateStatusOnComplete(ctx context.Context, db DBTX, orderID uuid.UUID) error {
+	if db == nil {
+		db = r.db
+	}
+	_, err := db.Exec(ctx,
+		`UPDATE orders SET status='completed', updated_at=NOW()
+		  WHERE id=$1 AND status='processing'`, orderID)
+	return err
+}
+
 func (r *OrderPG) UpdateStatusOnCancel(ctx context.Context, db DBTX, orderID uuid.UUID, reason string, paymentStatus domain.PaymentStatus) error {
 	if db == nil {
 		db = r.db

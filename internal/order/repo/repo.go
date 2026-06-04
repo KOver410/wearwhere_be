@@ -41,12 +41,22 @@ type OrderRepo interface {
 	List(ctx context.Context, f ListFilter) (items []*domain.Order, total int, err error)
 	UpdateStatusOnPaid(ctx context.Context, db DBTX, orderID uuid.UUID) error
 	UpdateStatusOnCancel(ctx context.Context, db DBTX, orderID uuid.UUID, reason string, paymentStatus domain.PaymentStatus) error
+	UpdateStatusOnComplete(ctx context.Context, db DBTX, orderID uuid.UUID) error
 }
 
 type SubOrderRepo interface {
 	Create(ctx context.Context, db DBTX, so *domain.SubOrder) error
 	ListByOrderID(ctx context.Context, orderID uuid.UUID) ([]*domain.SubOrder, error)
 	CancelAllByOrderID(ctx context.Context, db DBTX, orderID uuid.UUID) error
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.SubOrder, error)
+	GetByIDForUpdate(ctx context.Context, db DBTX, id uuid.UUID) (*domain.SubOrder, error)
+	GetByTrackingNoForUpdate(ctx context.Context, db DBTX, trackingNo string) (*domain.SubOrder, error)
+	ListByBrand(ctx context.Context, brandID uuid.UUID, statuses []domain.SubOrderStatus, page, pageSize int) (items []*domain.SubOrder, total int, err error)
+	UpdateConfirmed(ctx context.Context, db DBTX, id uuid.UUID) error
+	UpdateShipped(ctx context.Context, db DBTX, id uuid.UUID, trackingNo, goshipCode, carrier string, costVND int64, trackingURL string) error
+	UpdateDelivered(ctx context.Context, db DBTX, id uuid.UUID, statusText, trackingURL string) error
+	UpdateShippingStatus(ctx context.Context, db DBTX, id uuid.UUID, statusText, trackingURL string) error
+	AllDelivered(ctx context.Context, db DBTX, orderID uuid.UUID) (bool, error)
 }
 
 type OrderItemRepo interface {

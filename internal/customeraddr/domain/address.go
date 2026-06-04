@@ -17,6 +17,9 @@ type CustomerAddress struct {
 	Ward           string
 	District       string
 	City           string
+	CityCode       *string
+	DistrictCode   *string
+	WardCode       *string
 	Country        string
 	PostalCode     *string
 	Note           *string

@@ -38,7 +38,10 @@ type BrandAddress struct {
 	AddressLine string
 	Ward        string
 	District    string
-	City        string
+	City         string
+	CityCode     *string
+	DistrictCode *string
+	WardCode     *string
 	Country     string
 	PostalCode  *string
 	Phone       *string

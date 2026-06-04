@@ -24,6 +24,9 @@ func TestCancel_CODPending_ReleasesStock(t *testing.T) {
 	resp, _, err := s.Svc.PlaceOrder(ctx, s.UserID, domain.PlaceOrderReq{
 		AddressID:     s.AddrID,
 		PaymentMethod: domain.PaymentMethodCOD,
+		ShippingSelections: []domain.ShippingSelection{
+			{BrandID: s.BrandID, Carrier: "flat"},
+		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, domain.OrderStatusProcessing, resp.Status)
@@ -52,6 +55,9 @@ func TestCancel_OtherUser_NotFound(t *testing.T) {
 	resp, _, err := s.Svc.PlaceOrder(ctx, s.UserID, domain.PlaceOrderReq{
 		AddressID:     s.AddrID,
 		PaymentMethod: domain.PaymentMethodCOD,
+		ShippingSelections: []domain.ShippingSelection{
+			{BrandID: s.BrandID, Carrier: "flat"},
+		},
 	})
 	require.NoError(t, err)
 
@@ -78,6 +84,9 @@ func TestList_ReturnsPagedOrders(t *testing.T) {
 		_, _, err = s.Svc.PlaceOrder(ctx, s.UserID, domain.PlaceOrderReq{
 			AddressID:     s.AddrID,
 			PaymentMethod: domain.PaymentMethodCOD,
+			ShippingSelections: []domain.ShippingSelection{
+				{BrandID: s.BrandID, Carrier: "flat"},
+			},
 		})
 		require.NoError(t, err)
 	}

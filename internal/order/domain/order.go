@@ -8,12 +8,15 @@ import (
 )
 
 type ShippingAddress struct {
-	Recipient string `json:"recipient"`
-	Phone     string `json:"phone"`
-	Line1     string `json:"line1"`
-	Ward      string `json:"ward"`
-	District  string `json:"district"`
-	City      string `json:"city"`
+	Recipient    string  `json:"recipient"`
+	Phone        string  `json:"phone"`
+	Line1        string  `json:"line1"`
+	Ward         string  `json:"ward"`
+	District     string  `json:"district"`
+	City         string  `json:"city"`
+	CityCode     *string `json:"city_code,omitempty"`
+	DistrictCode *string `json:"district_code,omitempty"`
+	WardCode     *string `json:"ward_code,omitempty"`
 }
 
 type Order struct {
@@ -48,8 +51,13 @@ type SubOrder struct {
 	TotalVND         int64
 	Status           SubOrderStatus
 	TrackingNo       *string
-	ShippingProvider *string
-	ConfirmedAt      *time.Time
+	ShippingCarrier  *string
+	ShippingProvider   *string
+	ShippingCostVND    *int64
+	GoshipShipmentCode *string
+	TrackingURL        *string
+	ShippingStatusText *string
+	ConfirmedAt        *time.Time
 	ShippedAt        *time.Time
 	DeliveredAt      *time.Time
 	CancelledAt      *time.Time

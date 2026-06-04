@@ -9,13 +9,18 @@ import (
 
 	"github.com/wearwhere/wearwhere_be/internal/customeraddr/domain"
 	"github.com/wearwhere/wearwhere_be/internal/customeraddr/repo"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/goship"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/location"
 )
 
 type CustomerAddressService struct {
 	repo repo.AddressRepo
+	loc  *location.Service
 }
 
-func New(r repo.AddressRepo) *CustomerAddressService { return &CustomerAddressService{repo: r} }
+func New(r repo.AddressRepo, loc *location.Service) *CustomerAddressService {
+	return &CustomerAddressService{repo: r, loc: loc}
+}
 
 func (s *CustomerAddressService) List(ctx context.Context, userID uuid.UUID) ([]*domain.CustomerAddress, error) {
 	return s.repo.List(ctx, userID)
@@ -30,10 +35,31 @@ func (s *CustomerAddressService) Get(ctx context.Context, id, userID uuid.UUID) 
 }
 
 func (s *CustomerAddressService) Create(ctx context.Context, userID uuid.UUID, req *domain.CreateAddressRequest) (*domain.CustomerAddress, error) {
+	if err := s.validateLocation(ctx, req.CityCode, req.DistrictCode, req.WardCode); err != nil {
+		return nil, err
+	}
 	return s.repo.Create(ctx, userID, req)
 }
 
 func (s *CustomerAddressService) Update(ctx context.Context, id, userID uuid.UUID, req *domain.UpdateAddressRequest) (*domain.CustomerAddress, error) {
+	cityNil := req.CityCode == nil
+	distNil := req.DistrictCode == nil
+	wardNil := req.WardCode == nil
+	anyNil := cityNil || distNil || wardNil
+	allNil := cityNil && distNil && wardNil
+
+	if allNil {
+		// No location codes provided — skip validation, preserve existing codes.
+	} else if anyNil {
+		// Partial location update is not allowed — all three or none.
+		return nil, domain.ErrInvalidLocation
+	} else {
+		// All three provided — validate hierarchy.
+		if err := s.validateLocation(ctx, req.CityCode, req.DistrictCode, req.WardCode); err != nil {
+			return nil, err
+		}
+	}
+
 	a, err := s.repo.Update(ctx, id, userID, req)
 	if errors.Is(err, repo.ErrNotFound) {
 		return nil, domain.ErrAddressNotFound
@@ -49,4 +75,37 @@ func (s *CustomerAddressService) Delete(ctx context.Context, id, userID uuid.UUI
 		return err
 	}
 	return nil
+}
+
+// validateLocation checks that districtCode belongs to cityCode and wardCode
+// belongs to districtCode using the location service.
+// All three pointers must be non-nil; returns ErrInvalidLocation if any is nil.
+func (s *CustomerAddressService) validateLocation(ctx context.Context, cityCode, districtCode, wardCode *string) error {
+	if cityCode == nil || districtCode == nil || wardCode == nil {
+		return domain.ErrInvalidLocation
+	}
+	districts, err := s.loc.Districts(ctx, *cityCode)
+	if err != nil {
+		return domain.ErrInvalidLocation
+	}
+	if !containsCode(districts, *districtCode) {
+		return domain.ErrInvalidLocation
+	}
+	wards, err := s.loc.Wards(ctx, *districtCode)
+	if err != nil {
+		return domain.ErrInvalidLocation
+	}
+	if !containsCode(wards, *wardCode) {
+		return domain.ErrInvalidLocation
+	}
+	return nil
+}
+
+func containsCode(list []goship.Location, code string) bool {
+	for _, l := range list {
+		if l.Code == code {
+			return true
+		}
+	}
+	return false
 }

@@ -16,6 +16,14 @@ var (
 	ErrWebhookSignatureInvalid = errors.New("order: invalid webhook signature")
 	ErrPayosLinkCreate         = errors.New("order: failed to create PayOS payment link")
 	ErrIDOR                    = errors.New("order: resource not owned by user")
+	ErrAddressIncomplete       = errors.New("shipping address is missing city/district/ward code")
+	ErrCarrierUnavailable      = errors.New("selected carrier is no longer available for this route")
+	ErrCarrierNotSelected      = errors.New("no shipping carrier selected for one or more brands")
+	ErrShippingUnavailable     = errors.New("shipping service temporarily unavailable")
+	ErrSubOrderNotFound        = errors.New("sub-order not found")
+	ErrNotBrandOwner           = errors.New("sub-order does not belong to this brand")
+	ErrInvalidTransition       = errors.New("invalid fulfillment transition")
+	ErrShipmentCreateFailed    = errors.New("failed to create shipment with carrier")
 )
 
 const MinOrderValueVND int64 = 50000

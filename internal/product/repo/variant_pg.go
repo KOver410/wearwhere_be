@@ -15,13 +15,15 @@ type VariantPG struct{ db DBTX }
 func NewVariantPG(db DBTX) *VariantPG { return &VariantPG{db: db} }
 
 const variantCols = `id, product_id, sku, size, color, color_hex, price, stock_qty,
-                     is_active, image_id, created_at, updated_at, deleted_at`
+                     is_active, image_id, weight_g, length_cm, width_cm, height_cm,
+                     created_at, updated_at, deleted_at`
 
 func scanVariant(row pgx.Row) (*domain.Variant, error) {
 	var v domain.Variant
 	err := row.Scan(
 		&v.ID, &v.ProductID, &v.SKU, &v.Size, &v.Color, &v.ColorHex,
 		&v.Price, &v.StockQty, &v.IsActive, &v.ImageID,
+		&v.WeightG, &v.LengthCM, &v.WidthCM, &v.HeightCM,
 		&v.CreatedAt, &v.UpdatedAt, &v.DeletedAt,
 	)
 	if err != nil {
@@ -48,10 +50,12 @@ func (r *VariantPG) Create(ctx context.Context, productID uuid.UUID, req *domain
 	}
 	row := r.db.QueryRow(ctx,
 		`INSERT INTO product_variants
-         (product_id, sku, size, color, color_hex, price, stock_qty, image_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         (product_id, sku, size, color, color_hex, price, stock_qty, image_id,
+          weight_g, length_cm, width_cm, height_cm)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          RETURNING `+variantCols,
-		productID, req.SKU, req.Size, req.Color, hex, req.Price, req.StockQty, imageID)
+		productID, req.SKU, req.Size, req.Color, hex, req.Price, req.StockQty, imageID,
+		nil, nil, nil, nil)
 	v, err := scanVariant(row)
 	if err != nil {
 		if isUniqueViol(err, "idx_product_variants_size_color") {
@@ -218,6 +222,7 @@ func (r *VariantPG) FindForPurchase(ctx context.Context, variantID uuid.UUID) (*
       SELECT
         v.id, v.product_id, v.sku, v.size, v.color, v.color_hex,
         v.price, v.stock_qty, v.is_active, v.image_id,
+        v.weight_g, v.length_cm, v.width_cm, v.height_cm,
         v.created_at, v.updated_at, v.deleted_at,
         p.id, p.brand_id, p.category_id, p.slug, p.name, p.description,
         p.status, p.currency, p.sold_count, p.view_count,
@@ -231,6 +236,7 @@ func (r *VariantPG) FindForPurchase(ctx context.Context, variantID uuid.UUID) (*
 	).Scan(
 		&v.ID, &v.ProductID, &v.SKU, &v.Size, &v.Color, &v.ColorHex,
 		&v.Price, &v.StockQty, &v.IsActive, &v.ImageID,
+		&v.WeightG, &v.LengthCM, &v.WidthCM, &v.HeightCM,
 		&v.CreatedAt, &v.UpdatedAt, &v.DeletedAt,
 		&p.ID, &p.BrandID, &p.CategoryID, &p.Slug, &p.Name, &p.Description,
 		&p.Status, &p.Currency, &p.SoldCount, &p.ViewCount,

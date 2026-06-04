@@ -21,6 +21,7 @@ import (
 	"github.com/wearwhere/wearwhere_be/internal/payment/payos"
 	paymentrepo "github.com/wearwhere/wearwhere_be/internal/payment/repo"
 	productrepo "github.com/wearwhere/wearwhere_be/internal/product/repo"
+	shippingdomain "github.com/wearwhere/wearwhere_be/internal/shipping/domain"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
 )
 
@@ -81,6 +82,10 @@ type cartSnapshotRow struct {
 	BrandSlug    string
 	BrandName    string
 	ImageURL     *string
+	WeightG      *int
+	LengthCM     *int
+	WidthCM      *int
+	HeightCM     *int
 }
 
 // payosCodeSeq is an atomic counter used by nextPayosCode.
@@ -107,6 +112,9 @@ func stringOrEmpty(p *string) string {
 	return *p
 }
 
+// strPtr returns a pointer to the given string value.
+func strPtr(s string) *string { return &s }
+
 // PlaceOrder executes the 14-step atomic placement flow.
 // Returns an OrderResp, a PaymentResp, and any error.
 func (s *OrderService) PlaceOrder(
@@ -125,12 +133,18 @@ func (s *OrderService) PlaceOrder(
 		return nil, nil, domain.ErrAddressNotFound
 	}
 	shipAddr := domain.ShippingAddress{
-		Recipient: addr.RecipientName,
-		Phone:     addr.RecipientPhone,
-		Line1:     addr.AddressLine,
-		Ward:      addr.Ward,
-		District:  addr.District,
-		City:      addr.City,
+		Recipient:    addr.RecipientName,
+		Phone:        addr.RecipientPhone,
+		Line1:        addr.AddressLine,
+		Ward:         addr.Ward,
+		District:     addr.District,
+		City:         addr.City,
+		CityCode:     addr.CityCode,
+		DistrictCode: addr.DistrictCode,
+		WardCode:     addr.WardCode,
+	}
+	if addr.CityCode == nil || addr.DistrictCode == nil || addr.WardCode == nil {
+		return nil, nil, domain.ErrAddressIncomplete
 	}
 
 	// Step 3: pre-tx — load user for PayOS buyer info.
@@ -156,7 +170,8 @@ func (s *OrderService) PlaceOrder(
 		        b.slug, b.name,
 		        (SELECT url FROM product_images
 		           WHERE product_id = p.id AND is_primary = TRUE
-		           ORDER BY sort_order ASC LIMIT 1) AS image_url
+		           ORDER BY sort_order ASC LIMIT 1) AS image_url,
+		        v.weight_g, v.length_cm, v.width_cm, v.height_cm
 		   FROM cart_items ci
 		   JOIN product_variants v ON v.id = ci.variant_id
 		   JOIN products p ON p.id = v.product_id
@@ -177,6 +192,7 @@ func (s *OrderService) PlaceOrder(
 			&r.ProductID, &r.VariantLabel,
 			&r.ProductName, &r.BrandID, &r.ProductDel,
 			&r.BrandSlug, &r.BrandName, &r.ImageURL,
+			&r.WeightG, &r.LengthCM, &r.WidthCM, &r.HeightCM,
 		); err != nil {
 			rows.Close()
 			return nil, nil, err
@@ -210,6 +226,8 @@ func (s *OrderService) PlaceOrder(
 		rows      []cartSnapshotRow
 		subtotal  int64
 		shipping  int64
+		carrier   string
+		provider  string
 	}
 	groups := map[uuid.UUID]*brandGroup{}
 	brandOrder := []uuid.UUID{}
@@ -226,25 +244,54 @@ func (s *OrderService) PlaceOrder(
 		g.subtotal += line
 		subtotalAll += line
 	}
+	selByBrand := map[uuid.UUID]string{}
+	for _, sel := range req.ShippingSelections {
+		selByBrand[sel.BrandID] = sel.Carrier
+	}
 	var shippingAll int64
 	for _, bID := range brandOrder {
 		g := groups[bID]
-		quote, err := s.shipping.Calculate(ctx, provider.CalcReq{
-			BrandID: g.brandID,
-			ToAddress: provider.ShippingAddress{
-				Recipient: shipAddr.Recipient,
-				Phone:     shipAddr.Phone,
-				Line1:     shipAddr.Line1,
-				Ward:      shipAddr.Ward,
-				District:  shipAddr.District,
-				City:      shipAddr.City,
-			},
+		chosen, ok := selByBrand[g.brandID]
+		if !ok {
+			return nil, nil, domain.ErrCarrierNotSelected
+		}
+		items := make([]provider.CalcItem, 0, len(g.rows))
+		for _, r := range g.rows {
+			items = append(items, provider.CalcItem{
+				VariantID: r.VariantID, ProductID: r.ProductID, Qty: r.Qty,
+				WeightG: r.WeightG, LengthCM: r.LengthCM, WidthCM: r.WidthCM, HeightCM: r.HeightCM,
+			})
+		}
+		var codVND int64
+		if req.PaymentMethod == domain.PaymentMethodCOD {
+			codVND = g.subtotal
+		}
+		opts, err := s.shipping.Quote(ctx, provider.CalcReq{
+			BrandID:    g.brandID,
+			ToAddress:  provider.ShippingAddress{Recipient: shipAddr.Recipient, Phone: shipAddr.Phone, Line1: shipAddr.Line1, Ward: shipAddr.Ward, District: shipAddr.District, City: shipAddr.City},
+			ToCityCode: shipAddr.CityCode,
+			ToDistrict: shipAddr.DistrictCode,
+			CODVND:     codVND,
+			AmountVND:  g.subtotal,
+			Items:      items,
 		})
 		if err != nil {
-			return nil, nil, fmt.Errorf("shipping calc for brand %s: %w", g.brandID, err)
+			return nil, nil, fmt.Errorf("%w: brand %s: %v", domain.ErrShippingUnavailable, g.brandID, err)
 		}
-		g.shipping = quote.AmountVND
-		shippingAll += quote.AmountVND
+		var matched *shippingdomain.ShippingOption
+		for i := range opts {
+			if opts[i].Carrier == chosen {
+				matched = &opts[i]
+				break
+			}
+		}
+		if matched == nil {
+			return nil, nil, domain.ErrCarrierUnavailable
+		}
+		g.shipping = matched.AmountVND
+		g.carrier = matched.Carrier
+		g.provider = matched.Provider
+		shippingAll += matched.AmountVND
 	}
 	grandTotal := subtotalAll + shippingAll
 
@@ -290,12 +337,14 @@ func (s *OrderService) PlaceOrder(
 	for _, bID := range brandOrder {
 		g := groups[bID]
 		so := &domain.SubOrder{
-			OrderID:        order.ID,
-			BrandID:        g.brandID,
-			SubtotalVND:    g.subtotal,
-			ShippingFeeVND: g.shipping,
-			TotalVND:       g.subtotal + g.shipping,
-			Status:         domain.SubOrderStatusPending,
+			OrderID:          order.ID,
+			BrandID:          g.brandID,
+			SubtotalVND:      g.subtotal,
+			ShippingFeeVND:   g.shipping,
+			TotalVND:         g.subtotal + g.shipping,
+			Status:           domain.SubOrderStatusPending,
+			ShippingCarrier:  strPtr(g.carrier),
+			ShippingProvider: strPtr(g.provider),
 		}
 		if err := s.subOrderRepo.Create(ctx, tx, so); err != nil {
 			return nil, nil, err
@@ -443,11 +492,14 @@ func orderToResp(o *domain.Order) *domain.OrderResp {
 				Slug: so.BrandSlug,
 				Name: so.BrandName,
 			},
-			SubtotalVND:    so.SubtotalVND,
-			ShippingFeeVND: so.ShippingFeeVND,
-			TotalVND:       so.TotalVND,
-			Status:         so.Status,
-			TrackingNo:     so.TrackingNo,
+			SubtotalVND:        so.SubtotalVND,
+			ShippingFeeVND:     so.ShippingFeeVND,
+			TotalVND:           so.TotalVND,
+			Status:             so.Status,
+			TrackingNo:         so.TrackingNo,
+			ShippingCarrier:    so.ShippingCarrier,
+			TrackingURL:        so.TrackingURL,
+			ShippingStatusText: so.ShippingStatusText,
 		}
 		for _, it := range so.Items {
 			sr.Items = append(sr.Items, domain.OrderItemResp{

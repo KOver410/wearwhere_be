@@ -43,13 +43,18 @@ func (s *CheckoutService) Preview(
 	}
 
 	shipAddr := domain.ShippingAddress{
-		Recipient: addr.RecipientName,
-		Phone:     addr.RecipientPhone,
-		Line1:     addr.AddressLine,
-		Ward:      addr.Ward,
-		District:  addr.District,
-		City:      addr.City,
+		Recipient:    addr.RecipientName,
+		Phone:        addr.RecipientPhone,
+		Line1:        addr.AddressLine,
+		Ward:         addr.Ward,
+		District:     addr.District,
+		City:         addr.City,
+		CityCode:     addr.CityCode,
+		DistrictCode: addr.DistrictCode,
+		WardCode:     addr.WardCode,
 	}
+
+	addrIncomplete := addr.CityCode == nil || addr.DistrictCode == nil || addr.WardCode == nil
 
 	items, err := s.cartRepo.ListView(ctx, userID)
 	if err != nil {
@@ -57,12 +62,13 @@ func (s *CheckoutService) Preview(
 	}
 	if len(items) == 0 {
 		return &domain.CheckoutPreviewResp{
-			CartEmpty:        true,
-			Address:          &shipAddr,
-			SubOrders:        []domain.CheckoutPreviewSubOrder{},
-			MinOrderValueVND: domain.MinOrderValueVND,
-			MeetsMinOrder:    false,
-			Warnings:         []string{},
+			CartEmpty:         true,
+			Address:           &shipAddr,
+			SubOrders:         []domain.CheckoutPreviewSubOrder{},
+			MinOrderValueVND:  domain.MinOrderValueVND,
+			MeetsMinOrder:     false,
+			Warnings:          []string{},
+			AddressIncomplete: addrIncomplete,
 		}, nil
 	}
 
@@ -127,34 +133,55 @@ func (s *CheckoutService) Preview(
 	var shippingAll int64
 	for _, bID := range brandOrder {
 		g := grouped[bID]
-		quote, err := s.shipping.Calculate(ctx, provider.CalcReq{
-			BrandID:   bID,
-			ToAddress: toShippingProviderAddr(shipAddr),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("shipping calc for brand %s: %w", bID, err)
+
+		var options []domain.ShippingOptionResp
+		var cheapest int64
+		if !addrIncomplete {
+			opts, err := s.shipping.Quote(ctx, provider.CalcReq{
+				BrandID:    bID,
+				ToAddress:  toShippingProviderAddr(shipAddr),
+				ToCityCode: addr.CityCode,
+				ToDistrict: addr.DistrictCode,
+				CODVND:     0,
+				AmountVND:  g.subtotal,
+				Items:      toCalcItems(g.items),
+			})
+			if err != nil {
+				return nil, fmt.Errorf("shipping quote for brand %s: %w", bID, err)
+			}
+			for i, o := range opts {
+				options = append(options, domain.ShippingOptionResp{
+					Carrier: o.Carrier, CarrierName: o.CarrierName, Service: o.Service,
+					AmountVND: o.AmountVND, ETA: o.ETA,
+				})
+				if i == 0 || o.AmountVND < cheapest {
+					cheapest = o.AmountVND
+				}
+			}
 		}
-		shippingAll += quote.AmountVND
 		subOrders = append(subOrders, domain.CheckoutPreviewSubOrder{
-			Brand:          g.brand,
-			Items:          g.items,
-			SubtotalVND:    g.subtotal,
-			ShippingFeeVND: quote.AmountVND,
-			TotalVND:       g.subtotal + quote.AmountVND,
+			Brand:           g.brand,
+			Items:           g.items,
+			SubtotalVND:     g.subtotal,
+			ShippingFeeVND:  cheapest,
+			TotalVND:        g.subtotal + cheapest,
+			ShippingOptions: options,
 		})
+		shippingAll += cheapest
 	}
 
 	grand := subtotalAll + shippingAll
 	return &domain.CheckoutPreviewResp{
-		CartEmpty:        false,
-		Address:          &shipAddr,
-		SubOrders:        subOrders,
-		SubtotalVND:      subtotalAll,
-		ShippingTotalVND: shippingAll,
-		GrandTotalVND:    grand,
-		MinOrderValueVND: domain.MinOrderValueVND,
-		MeetsMinOrder:    subtotalAll >= domain.MinOrderValueVND,
-		Warnings:         warnings,
+		CartEmpty:         false,
+		Address:           &shipAddr,
+		SubOrders:         subOrders,
+		SubtotalVND:       subtotalAll,
+		ShippingTotalVND:  shippingAll,
+		GrandTotalVND:     grand,
+		MinOrderValueVND:  domain.MinOrderValueVND,
+		MeetsMinOrder:     subtotalAll >= domain.MinOrderValueVND,
+		Warnings:          warnings,
+		AddressIncomplete: addrIncomplete,
 	}, nil
 }
 
@@ -181,4 +208,18 @@ func toShippingProviderAddr(a domain.ShippingAddress) provider.ShippingAddress {
 		District:  a.District,
 		City:      a.City,
 	}
+}
+
+// toCalcItems converts preview items to provider CalcItems.
+// Dimension/weight pointers are left nil — the provider applies config defaults.
+func toCalcItems(items []domain.CheckoutPreviewItem) []provider.CalcItem {
+	out := make([]provider.CalcItem, 0, len(items))
+	for _, it := range items {
+		out = append(out, provider.CalcItem{
+			VariantID: it.VariantID,
+			ProductID: it.ProductID,
+			Qty:       it.Qty,
+		})
+	}
+	return out
 }

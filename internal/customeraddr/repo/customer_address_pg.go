@@ -15,14 +15,16 @@ type AddressPG struct{ db DBTX }
 func NewAddressPG(db DBTX) *AddressPG { return &AddressPG{db: db} }
 
 const addrCols = `id, user_id, label, recipient_name, recipient_phone,
-                  address_line, ward, district, city, country, postal_code, note,
+                  address_line, ward, district, city, city_code, district_code, ward_code,
+                  country, postal_code, note,
                   is_default, created_at, updated_at, deleted_at`
 
 func scanAddress(row pgx.Row) (*domain.CustomerAddress, error) {
 	var a domain.CustomerAddress
 	err := row.Scan(
 		&a.ID, &a.UserID, &a.Label, &a.RecipientName, &a.RecipientPhone,
-		&a.AddressLine, &a.Ward, &a.District, &a.City, &a.Country, &a.PostalCode, &a.Note,
+		&a.AddressLine, &a.Ward, &a.District, &a.City, &a.CityCode, &a.DistrictCode, &a.WardCode,
+		&a.Country, &a.PostalCode, &a.Note,
 		&a.IsDefault, &a.CreatedAt, &a.UpdatedAt, &a.DeletedAt,
 	)
 	if err != nil {
@@ -91,11 +93,13 @@ func (r *AddressPG) Create(ctx context.Context, userID uuid.UUID, req *domain.Cr
 	a, err := scanAddress(tx.QueryRow(ctx,
 		`INSERT INTO customer_addresses
            (user_id, label, recipient_name, recipient_phone, address_line,
-            ward, district, city, country, postal_code, note, is_default)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            ward, district, city, city_code, district_code, ward_code,
+            country, postal_code, note, is_default)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
          RETURNING `+addrCols,
 		userID, req.Label, req.RecipientName, req.RecipientPhone, req.AddressLine,
-		req.Ward, req.District, req.City, country, req.PostalCode, req.Note, isDefault))
+		req.Ward, req.District, req.City, req.CityCode, req.DistrictCode, req.WardCode,
+		country, req.PostalCode, req.Note, isDefault))
 	if err != nil {
 		return nil, err
 	}
@@ -130,15 +134,19 @@ func (r *AddressPG) Update(ctx context.Context, id, userID uuid.UUID, req *domai
             ward            = COALESCE($7, ward),
             district        = COALESCE($8, district),
             city            = COALESCE($9, city),
-            country         = COALESCE($10, country),
-            postal_code     = COALESCE($11, postal_code),
-            note            = COALESCE($12, note),
-            is_default      = COALESCE($13, is_default),
+            city_code       = COALESCE($10, city_code),
+            district_code   = COALESCE($11, district_code),
+            ward_code       = COALESCE($12, ward_code),
+            country         = COALESCE($13, country),
+            postal_code     = COALESCE($14, postal_code),
+            note            = COALESCE($15, note),
+            is_default      = COALESCE($16, is_default),
             updated_at      = NOW()
          WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL
          RETURNING `+addrCols,
 		id, userID, req.Label, req.RecipientName, req.RecipientPhone, req.AddressLine,
-		req.Ward, req.District, req.City, req.Country, req.PostalCode, req.Note, req.IsDefault))
+		req.Ward, req.District, req.City, req.CityCode, req.DistrictCode, req.WardCode,
+		req.Country, req.PostalCode, req.Note, req.IsDefault))
 	if err != nil {
 		return nil, err
 	}

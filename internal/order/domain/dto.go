@@ -20,12 +20,21 @@ type CheckoutPreviewItem struct {
 	AvailableQty int       `json:"available_qty"`
 }
 
+type ShippingOptionResp struct {
+	Carrier     string `json:"carrier"`
+	CarrierName string `json:"carrier_name"`
+	Service     string `json:"service"`
+	AmountVND   int64  `json:"amount_vnd"`
+	ETA         string `json:"eta"`
+}
+
 type CheckoutPreviewSubOrder struct {
-	Brand          BrandRef              `json:"brand"`
-	Items          []CheckoutPreviewItem `json:"items"`
-	SubtotalVND    int64                 `json:"subtotal_vnd"`
-	ShippingFeeVND int64                 `json:"shipping_fee_vnd"`
-	TotalVND       int64                 `json:"total_vnd"`
+	Brand           BrandRef              `json:"brand"`
+	Items           []CheckoutPreviewItem `json:"items"`
+	SubtotalVND     int64                 `json:"subtotal_vnd"`
+	ShippingFeeVND  int64                 `json:"shipping_fee_vnd"`
+	TotalVND        int64                 `json:"total_vnd"`
+	ShippingOptions []ShippingOptionResp  `json:"shipping_options"`
 }
 
 type BrandRef struct {
@@ -41,15 +50,22 @@ type CheckoutPreviewResp struct {
 	SubtotalVND      int64                     `json:"subtotal_vnd"`
 	ShippingTotalVND int64                     `json:"shipping_total_vnd"`
 	GrandTotalVND    int64                     `json:"grand_total_vnd"`
-	MinOrderValueVND int64                     `json:"min_order_value_vnd"`
-	MeetsMinOrder    bool                      `json:"meets_min_order"`
-	Warnings         []string                  `json:"warnings"`
+	MinOrderValueVND  int64                     `json:"min_order_value_vnd"`
+	MeetsMinOrder     bool                      `json:"meets_min_order"`
+	Warnings          []string                  `json:"warnings"`
+	AddressIncomplete bool                      `json:"address_incomplete"`
+}
+
+type ShippingSelection struct {
+	BrandID uuid.UUID `json:"brand_id" binding:"required"`
+	Carrier string    `json:"carrier" binding:"required"`
 }
 
 type PlaceOrderReq struct {
-	AddressID     uuid.UUID     `json:"address_id" binding:"required"`
-	PaymentMethod PaymentMethod `json:"payment_method" binding:"required"`
-	Notes         string        `json:"notes" binding:"max=500"`
+	AddressID          uuid.UUID          `json:"address_id" binding:"required"`
+	PaymentMethod      PaymentMethod      `json:"payment_method" binding:"required"`
+	Notes              string             `json:"notes" binding:"max=500"`
+	ShippingSelections []ShippingSelection `json:"shipping_selections" binding:"required,dive"`
 }
 
 type PaymentResp struct {
@@ -86,8 +102,11 @@ type SubOrderResp struct {
 	ShippingFeeVND int64           `json:"shipping_fee_vnd"`
 	TotalVND       int64           `json:"total_vnd"`
 	Status         SubOrderStatus  `json:"status"`
-	TrackingNo     *string         `json:"tracking_no"`
-	Items          []OrderItemResp `json:"items"`
+	TrackingNo         *string         `json:"tracking_no"`
+	ShippingCarrier    *string         `json:"shipping_carrier"`
+	TrackingURL        *string         `json:"tracking_url"`
+	ShippingStatusText *string         `json:"shipping_status_text"`
+	Items              []OrderItemResp `json:"items"`
 }
 
 type OrderResp struct {
@@ -132,4 +151,43 @@ type OrderListResp struct {
 
 type CancelOrderReq struct {
 	Reason string `json:"reason" binding:"max=200"`
+}
+
+type ShipReq struct {
+	Carrier string `json:"carrier"` // optional override; empty = use stored shipping_carrier
+}
+
+type BrandSubOrderListItem struct {
+	SubOrderID uuid.UUID      `json:"sub_order_id"`
+	OrderNo    string         `json:"order_no"`
+	Status     SubOrderStatus `json:"status"`
+	Recipient  string         `json:"recipient"`
+	TotalVND   int64          `json:"total_vnd"`
+	ItemCount  int            `json:"item_count"`
+	TrackingNo *string        `json:"tracking_no"`
+	CreatedAt  time.Time      `json:"created_at"`
+}
+
+type BrandSubOrderListResp struct {
+	Data       []BrandSubOrderListItem `json:"data"`
+	Page       int                     `json:"page"`
+	PageSize   int                     `json:"page_size"`
+	Total      int                     `json:"total"`
+	TotalPages int                     `json:"total_pages"`
+}
+
+type BrandSubOrderDetailResp struct {
+	SubOrderID         uuid.UUID       `json:"sub_order_id"`
+	OrderNo            string          `json:"order_no"`
+	Status             SubOrderStatus  `json:"status"`
+	SubtotalVND        int64           `json:"subtotal_vnd"`
+	ShippingFeeVND     int64           `json:"shipping_fee_vnd"`
+	TotalVND           int64           `json:"total_vnd"`
+	ShippingCarrier    *string         `json:"shipping_carrier"`
+	TrackingNo         *string         `json:"tracking_no"`
+	TrackingURL        *string         `json:"tracking_url"`
+	ShippingStatusText *string         `json:"shipping_status_text"`
+	ShippingAddress    ShippingAddress `json:"shipping_address"`
+	Items              []OrderItemResp `json:"items"`
+	CreatedAt          time.Time       `json:"created_at"`
 }

@@ -51,6 +51,8 @@ import (
 	jwtsvc "github.com/wearwhere/wearwhere_be/internal/shared/jwt"
 	"github.com/wearwhere/wearwhere_be/internal/shared/storage"
 	authvalidator "github.com/wearwhere/wearwhere_be/internal/shared/validator"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/goship"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/location"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
 	wishlisthandler "github.com/wearwhere/wearwhere_be/internal/wishlist/handler"
 	wishlistrepo "github.com/wearwhere/wearwhere_be/internal/wishlist/repo"
@@ -72,7 +74,8 @@ func buildTestServer(t *testing.T, pool *pgxpool.Pool, storageBackend storage.St
 
 	brandRepo := brandrepo.NewBrandPG(pool)
 	addressRepo := brandrepo.NewAddressPG(pool)
-	brandSvc := brandservice.New(brandRepo, addressRepo)
+	locSvc := location.NewService(goship.NewMockClient(), 24*time.Hour)
+	brandSvc := brandservice.New(brandRepo, addressRepo, locSvc)
 
 	productRepo := productrepo.NewProductPG(pool)
 	variantRepo := productrepo.NewVariantPG(pool)
@@ -113,7 +116,7 @@ func buildTestServer(t *testing.T, pool *pgxpool.Pool, storageBackend storage.St
 	wishlistRepo := wishlistrepo.NewWishlistPG(pool)
 	cartRepo := cartrepo.NewCartPG(pool)
 
-	customerAddrSvc := customeraddrservice.New(customeraddrRepo)
+	customerAddrSvc := customeraddrservice.New(customeraddrRepo, locSvc)
 	wishlistSvc := wishlistservice.New(wishlistRepo, productRepo)
 	cartSvc := cartservice.New(cartRepo, variantRepo)
 
@@ -321,12 +324,12 @@ func TestE2E_CustomerShoppingFlow(t *testing.T) {
 
 	// === ADDRESSES ===
 	// First address → auto-default.
-	addr1Body := `{"label":"Nhà","recipient_name":"Nguyen Van X","recipient_phone":"+84901234567","address_line":"1 A","ward":"P 1","district":"Q 1","city":"TP HCM"}`
+	addr1Body := `{"label":"Nhà","recipient_name":"Nguyen Van X","recipient_phone":"+84901234567","address_line":"1 A","ward":"P 1","district":"Q 1","city":"TP HCM","city_code":"100000","district_code":"100000100","ward_code":"10000010001"}`
 	addr1 := postJSON(t, srv.URL+"/api/v1/me/addresses", token, addr1Body, http.StatusCreated)
 	require.True(t, addr1["is_default"].(bool))
 
 	// Second address with explicit is_default=true → first should be auto-unset.
-	addr2Body := `{"label":"Office","recipient_name":"Nguyen Van Y","recipient_phone":"+84901234568","address_line":"2 B","ward":"P 2","district":"Q 2","city":"TP HCM","is_default":true}`
+	addr2Body := `{"label":"Office","recipient_name":"Nguyen Van Y","recipient_phone":"+84901234568","address_line":"2 B","ward":"P 2","district":"Q 2","city":"TP HCM","city_code":"100000","district_code":"100000100","ward_code":"10000010001","is_default":true}`
 	addr2 := postJSON(t, srv.URL+"/api/v1/me/addresses", token, addr2Body, http.StatusCreated)
 	require.True(t, addr2["is_default"].(bool))
 
@@ -540,7 +543,7 @@ func addCartAndAddress(
 	postJSON(t, srvURL+"/api/v1/me/cart/items", token, addBody, http.StatusCreated)
 
 	// Create address
-	addrBody := `{"label":"Home","recipient_name":"Test User","recipient_phone":"+84901234567","address_line":"123 Test St","ward":"Ward 1","district":"District 1","city":"Ho Chi Minh City"}`
+	addrBody := `{"label":"Home","recipient_name":"Test User","recipient_phone":"+84901234567","address_line":"123 Test St","ward":"Ward 1","district":"District 1","city":"Ho Chi Minh City","city_code":"100000","district_code":"100000100","ward_code":"10000010001"}`
 	addrResp := postJSON(t, srvURL+"/api/v1/me/addresses", token, addrBody, http.StatusCreated)
 	addressID = addrResp["id"].(string)
 	return
@@ -568,7 +571,7 @@ func TestE2E_OrderPayosFlow(t *testing.T) {
 	t.Cleanup(pool.Close)
 
 	ctx := context.Background()
-	ownerID, _, _, _, variantID, customerID := seedOrderFixtures(t, ctx, pool, "payos1", 5)
+	ownerID, brandID, _, _, variantID, customerID := seedOrderFixtures(t, ctx, pool, "payos1", 5)
 	_ = ownerID
 
 	backend := storage.NewLocal(t.TempDir(), "http://test/uploads")
@@ -578,7 +581,7 @@ func TestE2E_OrderPayosFlow(t *testing.T) {
 	addressID := addCartAndAddress(t, srv.URL, token, variantID)
 
 	// Place PayOS order → 201.
-	orderBody := fmt.Sprintf(`{"address_id":"%s","payment_method":"payos"}`, addressID)
+	orderBody := fmt.Sprintf(`{"address_id":"%s","payment_method":"payos","shipping_selections":[{"brand_id":"%s","carrier":"flat"}]}`, addressID, brandID)
 	placeResp := postJSON(t, srv.URL+"/api/v1/me/orders", token, orderBody, http.StatusCreated)
 
 	order := placeResp["order"].(map[string]any)
@@ -619,7 +622,7 @@ func TestE2E_OrderCODFlow(t *testing.T) {
 	t.Cleanup(pool.Close)
 
 	ctx := context.Background()
-	ownerID, _, _, _, variantID, customerID := seedOrderFixtures(t, ctx, pool, "cod1", 5)
+	ownerID, brandID, _, _, variantID, customerID := seedOrderFixtures(t, ctx, pool, "cod1", 5)
 	_ = ownerID
 
 	backend := storage.NewLocal(t.TempDir(), "http://test/uploads")
@@ -629,7 +632,7 @@ func TestE2E_OrderCODFlow(t *testing.T) {
 	addressID := addCartAndAddress(t, srv.URL, token, variantID)
 
 	// Place COD order → 201, status=processing immediately.
-	orderBody := fmt.Sprintf(`{"address_id":"%s","payment_method":"cod"}`, addressID)
+	orderBody := fmt.Sprintf(`{"address_id":"%s","payment_method":"cod","shipping_selections":[{"brand_id":"%s","carrier":"flat"}]}`, addressID, brandID)
 	placeResp := postJSON(t, srv.URL+"/api/v1/me/orders", token, orderBody, http.StatusCreated)
 
 	order := placeResp["order"].(map[string]any)
@@ -658,7 +661,7 @@ func TestE2E_CancelPayosUnpaid(t *testing.T) {
 	t.Cleanup(pool.Close)
 
 	ctx := context.Background()
-	ownerID, _, _, _, variantID, customerID := seedOrderFixtures(t, ctx, pool, "cancel1", 5)
+	ownerID, brandID, _, _, variantID, customerID := seedOrderFixtures(t, ctx, pool, "cancel1", 5)
 	_ = ownerID
 
 	backend := storage.NewLocal(t.TempDir(), "http://test/uploads")
@@ -668,7 +671,7 @@ func TestE2E_CancelPayosUnpaid(t *testing.T) {
 	addressID := addCartAndAddress(t, srv.URL, token, variantID)
 
 	// Place PayOS order (don't fire webhook).
-	orderBody := fmt.Sprintf(`{"address_id":"%s","payment_method":"payos"}`, addressID)
+	orderBody := fmt.Sprintf(`{"address_id":"%s","payment_method":"payos","shipping_selections":[{"brand_id":"%s","carrier":"flat"}]}`, addressID, brandID)
 	placeResp := postJSON(t, srv.URL+"/api/v1/me/orders", token, orderBody, http.StatusCreated)
 	orderNo := placeResp["order"].(map[string]any)["order_no"].(string)
 
@@ -698,7 +701,7 @@ func TestE2E_InsufficientStockRace(t *testing.T) {
 	ctx := context.Background()
 
 	// Seed brand/product/variant with stock=1.
-	ownerID, _, _, _, variantID, customerID1 := seedOrderFixtures(t, ctx, pool, "race1", 1)
+	ownerID, brandID, _, _, variantID, customerID1 := seedOrderFixtures(t, ctx, pool, "race1", 1)
 	_ = ownerID
 
 	// Seed a second customer.
@@ -730,13 +733,13 @@ func TestE2E_InsufficientStockRace(t *testing.T) {
 	// Each customer adds qty=1 to cart (stock=1, so each only needs 1).
 	addBody1 := fmt.Sprintf(`{"variant_id":"%s","qty":1}`, variantID)
 	postJSON(t, srv.URL+"/api/v1/me/cart/items", token1, addBody1, http.StatusCreated)
-	addrBody1 := `{"label":"Home","recipient_name":"Customer 1","recipient_phone":"+84901234567","address_line":"123 Test St","ward":"Ward 1","district":"District 1","city":"Ho Chi Minh City"}`
+	addrBody1 := `{"label":"Home","recipient_name":"Customer 1","recipient_phone":"+84901234567","address_line":"123 Test St","ward":"Ward 1","district":"District 1","city":"Ho Chi Minh City","city_code":"100000","district_code":"100000100","ward_code":"10000010001"}`
 	addrResp1 := postJSON(t, srv.URL+"/api/v1/me/addresses", token1, addrBody1, http.StatusCreated)
 	addr1 := addrResp1["id"].(string)
 
 	addBody2 := fmt.Sprintf(`{"variant_id":"%s","qty":1}`, variantID)
 	postJSON(t, srv.URL+"/api/v1/me/cart/items", token2, addBody2, http.StatusCreated)
-	addrBody2 := `{"label":"Home","recipient_name":"Customer 2","recipient_phone":"+84901234568","address_line":"456 Test Ave","ward":"Ward 2","district":"District 2","city":"Ho Chi Minh City"}`
+	addrBody2 := `{"label":"Home","recipient_name":"Customer 2","recipient_phone":"+84901234568","address_line":"456 Test Ave","ward":"Ward 2","district":"District 2","city":"Ho Chi Minh City","city_code":"100000","district_code":"100000100","ward_code":"10000010001"}`
 	addrResp2 := postJSON(t, srv.URL+"/api/v1/me/addresses", token2, addrBody2, http.StatusCreated)
 	addr2 := addrResp2["id"].(string)
 
@@ -748,9 +751,9 @@ func TestE2E_InsufficientStockRace(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	placeOrder := func(idx int, token, addrID string) {
+	placeOrder := func(idx int, token, addrID, bID string) {
 		defer wg.Done()
-		body := fmt.Sprintf(`{"address_id":"%s","payment_method":"cod"}`, addrID)
+		body := fmt.Sprintf(`{"address_id":"%s","payment_method":"cod","shipping_selections":[{"brand_id":"%s","carrier":"flat"}]}`, addrID, bID)
 		req, _ := http.NewRequest("POST", srv.URL+"/api/v1/me/orders", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
@@ -764,8 +767,8 @@ func TestE2E_InsufficientStockRace(t *testing.T) {
 		results[idx].status = resp.StatusCode
 	}
 
-	go placeOrder(0, token1, addr1)
-	go placeOrder(1, token2, addr2)
+	go placeOrder(0, token1, addr1, brandID)
+	go placeOrder(1, token2, addr2, brandID)
 	wg.Wait()
 
 	statuses := []int{results[0].status, results[1].status}
@@ -794,7 +797,7 @@ func TestE2E_ReservationCleanupJob(t *testing.T) {
 	t.Cleanup(pool.Close)
 
 	ctx := context.Background()
-	ownerID, _, _, _, variantID, customerID := seedOrderFixtures(t, ctx, pool, "cleanup1", 5)
+	ownerID, brandID, _, _, variantID, customerID := seedOrderFixtures(t, ctx, pool, "cleanup1", 5)
 	_ = ownerID
 
 	backend := storage.NewLocal(t.TempDir(), "http://test/uploads")
@@ -804,7 +807,7 @@ func TestE2E_ReservationCleanupJob(t *testing.T) {
 	addressID := addCartAndAddress(t, srv.URL, token, variantID)
 
 	// Place PayOS order (don't fire webhook).
-	orderBody := fmt.Sprintf(`{"address_id":"%s","payment_method":"payos"}`, addressID)
+	orderBody := fmt.Sprintf(`{"address_id":"%s","payment_method":"payos","shipping_selections":[{"brand_id":"%s","carrier":"flat"}]}`, addressID, brandID)
 	placeResp := postJSON(t, srv.URL+"/api/v1/me/orders", token, orderBody, http.StatusCreated)
 	orderNo := placeResp["order"].(map[string]any)["order_no"].(string)
 

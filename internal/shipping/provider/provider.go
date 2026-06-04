@@ -23,15 +23,22 @@ type CalcItem struct {
 	VariantID uuid.UUID
 	ProductID uuid.UUID
 	Qty       int
-	WeightG   int // 0 in Sprint 3 — variant weight column not yet added
+	WeightG   *int
+	LengthCM  *int
+	WidthCM   *int
+	HeightCM  *int
 }
 
 type CalcReq struct {
-	BrandID   uuid.UUID
-	ToAddress ShippingAddress
-	Items     []CalcItem
+	BrandID    uuid.UUID
+	ToAddress  ShippingAddress
+	ToCityCode *string
+	ToDistrict *string
+	CODVND     int64 // carrier-collected amount (grand total for COD, 0 for PayOS)
+	AmountVND  int64 // declared goods value (sub-order subtotal)
+	Items      []CalcItem
 }
 
 type ShippingProvider interface {
-	Calculate(ctx context.Context, r CalcReq) (*shippingdomain.FeeQuote, error)
+	Quote(ctx context.Context, r CalcReq) ([]shippingdomain.ShippingOption, error)
 }

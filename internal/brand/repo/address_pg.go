@@ -15,6 +15,7 @@ type AddressPG struct{ db DBTX }
 func NewAddressPG(db DBTX) *AddressPG { return &AddressPG{db: db} }
 
 const addrCols = `id, brand_id, label, address_line, ward, district, city,
+                  city_code, district_code, ward_code,
                   country, postal_code, phone, latitude, longitude,
                   is_primary, is_public, created_at, updated_at, deleted_at`
 
@@ -22,6 +23,7 @@ func scanAddress(row pgx.Row) (*domain.BrandAddress, error) {
 	var a domain.BrandAddress
 	err := row.Scan(
 		&a.ID, &a.BrandID, &a.Label, &a.AddressLine, &a.Ward, &a.District, &a.City,
+		&a.CityCode, &a.DistrictCode, &a.WardCode,
 		&a.Country, &a.PostalCode, &a.Phone, &a.Latitude, &a.Longitude,
 		&a.IsPrimary, &a.IsPublic, &a.CreatedAt, &a.UpdatedAt, &a.DeletedAt,
 	)
@@ -86,11 +88,13 @@ func (r *AddressPG) Create(ctx context.Context, brandID uuid.UUID, req *domain.C
 
 	row := r.db.QueryRow(ctx,
 		`INSERT INTO brand_addresses
-         (brand_id, label, address_line, ward, district, city, country,
-          postal_code, phone, latitude, longitude, is_primary, is_public)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         (brand_id, label, address_line, ward, district, city,
+          city_code, district_code, ward_code,
+          country, postal_code, phone, latitude, longitude, is_primary, is_public)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
          RETURNING `+addrCols,
 		brandID, req.Label, req.AddressLine, req.Ward, req.District, req.City,
+		req.CityCode, req.DistrictCode, req.WardCode,
 		country, req.PostalCode, req.Phone, req.Latitude, req.Longitude,
 		req.IsPrimary, isPublic)
 	return scanAddress(row)
@@ -108,25 +112,59 @@ func (r *AddressPG) Update(ctx context.Context, id, brandID uuid.UUID, req *doma
 	}
 	row := r.db.QueryRow(ctx,
 		`UPDATE brand_addresses SET
-           label        = COALESCE($3, label),
-           address_line = COALESCE($4, address_line),
-           ward         = COALESCE($5, ward),
-           district     = COALESCE($6, district),
-           city         = COALESCE($7, city),
-           country      = COALESCE($8, country),
-           postal_code  = COALESCE($9, postal_code),
-           phone        = COALESCE($10, phone),
-           latitude     = COALESCE($11, latitude),
-           longitude    = COALESCE($12, longitude),
-           is_primary   = COALESCE($13, is_primary),
-           is_public    = COALESCE($14, is_public),
-           updated_at   = NOW()
+           label         = COALESCE($3, label),
+           address_line  = COALESCE($4, address_line),
+           ward          = COALESCE($5, ward),
+           district      = COALESCE($6, district),
+           city          = COALESCE($7, city),
+           city_code     = COALESCE($8, city_code),
+           district_code = COALESCE($9, district_code),
+           ward_code     = COALESCE($10, ward_code),
+           country       = COALESCE($11, country),
+           postal_code   = COALESCE($12, postal_code),
+           phone         = COALESCE($13, phone),
+           latitude      = COALESCE($14, latitude),
+           longitude     = COALESCE($15, longitude),
+           is_primary    = COALESCE($16, is_primary),
+           is_public     = COALESCE($17, is_public),
+           updated_at    = NOW()
          WHERE id=$1 AND brand_id=$2 AND deleted_at IS NULL
          RETURNING `+addrCols,
 		id, brandID, req.Label, req.AddressLine, req.Ward, req.District, req.City,
+		req.CityCode, req.DistrictCode, req.WardCode,
 		req.Country, req.PostalCode, req.Phone, req.Latitude, req.Longitude,
 		req.IsPrimary, req.IsPublic)
 	return scanAddress(row)
+}
+
+func (r *AddressPG) PrimaryAddress(ctx context.Context, brandID uuid.UUID) (*domain.BrandAddress, error) {
+	row := r.db.QueryRow(ctx,
+		`SELECT `+addrCols+` FROM brand_addresses
+		  WHERE brand_id=$1 AND is_primary=TRUE AND deleted_at IS NULL
+		  ORDER BY created_at ASC LIMIT 1`, brandID)
+	return scanAddress(row)
+}
+
+func (r *AddressPG) PrimaryAddressCodes(ctx context.Context, brandID uuid.UUID) (string, string, error) {
+	var city, district *string
+	err := r.db.QueryRow(ctx,
+		`SELECT city_code, district_code FROM brand_addresses
+		  WHERE brand_id = $1 AND is_primary = TRUE AND deleted_at IS NULL
+		  LIMIT 1`, brandID).Scan(&city, &district)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	c, d := "", ""
+	if city != nil {
+		c = *city
+	}
+	if district != nil {
+		d = *district
+	}
+	return c, d, nil
 }
 
 func (r *AddressPG) SoftDelete(ctx context.Context, id, brandID uuid.UUID) error {

@@ -77,24 +77,33 @@ func (f *fakeAddrRepo) SoftDelete(_ context.Context, _, _ uuid.UUID) error {
 	panic("unused in checkout tests")
 }
 
-// fakeShipping satisfies provider.ShippingProvider.
-type fakeShipping struct {
-	fee int64
+// stubProvider satisfies provider.ShippingProvider.
+type stubProvider struct {
+	opts []shippingdomain.ShippingOption
+	err  error
 }
 
-var _ provider.ShippingProvider = (*fakeShipping)(nil)
+var _ provider.ShippingProvider = (stubProvider{})
 
-func (f *fakeShipping) Calculate(_ context.Context, _ provider.CalcReq) (*shippingdomain.FeeQuote, error) {
-	return &shippingdomain.FeeQuote{AmountVND: f.fee, Currency: "VND"}, nil
+func (s stubProvider) Quote(_ context.Context, _ provider.CalcReq) ([]shippingdomain.ShippingOption, error) {
+	return s.opts, s.err
+}
+
+// fakeShipping wraps stubProvider for tests that only care about a flat fee.
+func newFakeShipping(fee int64) stubProvider {
+	return stubProvider{opts: []shippingdomain.ShippingOption{
+		{Carrier: "flat", CarrierName: "Flat Rate", AmountVND: fee, ETA: ""},
+	}}
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-func strPtr(s string) *string { return &s }
-
 func makeAddr(userID uuid.UUID) *customeraddrdomain.CustomerAddress {
+	city := "79"
+	district := "760"
+	ward := "26734"
 	return &customeraddrdomain.CustomerAddress{
 		ID:             uuid.New(),
 		UserID:         userID,
@@ -102,6 +111,22 @@ func makeAddr(userID uuid.UUID) *customeraddrdomain.CustomerAddress {
 		RecipientPhone: "0901234567",
 		AddressLine:    "123 Le Loi",
 		Ward:           "Ben Nghe",
+		District:       "Quan 1",
+		City:           "Ho Chi Minh",
+		CityCode:       &city,
+		DistrictCode:   &district,
+		WardCode:       &ward,
+	}
+}
+
+func makeAddrNoCodes(userID uuid.UUID) *customeraddrdomain.CustomerAddress {
+	return &customeraddrdomain.CustomerAddress{
+		ID:             uuid.New(),
+		UserID:         userID,
+		RecipientName:  "Nguyen Van B",
+		RecipientPhone: "0909999999",
+		AddressLine:    "456 Nguyen Hue",
+		Ward:           "Ben Thanh",
 		District:       "Quan 1",
 		City:           "Ho Chi Minh",
 	}
@@ -120,7 +145,7 @@ func TestPreview_EmptyCart(t *testing.T) {
 	svc := NewCheckoutService(
 		&fakeCartRepo{items: []*cartdomain.CartItemView{}},
 		&fakeAddrRepo{addr: addr},
-		&fakeShipping{fee: 30000},
+		newFakeShipping(30000),
 	)
 
 	resp, err := svc.Preview(context.Background(), userID, addrID)
@@ -141,7 +166,7 @@ func TestPreview_AddressNotOwned_Returns404(t *testing.T) {
 		&fakeCartRepo{items: []*cartdomain.CartItemView{}},
 		// FindByID returns ErrNotFound (simulates wrong owner or missing addr)
 		&fakeAddrRepo{findErr: customeraddrrepo.ErrNotFound},
-		&fakeShipping{fee: 30000},
+		newFakeShipping(30000),
 	)
 
 	_, err := svc.Preview(context.Background(), userID, addrID)
@@ -192,7 +217,7 @@ func TestPreview_GroupsByBrand_AndComputesTotals(t *testing.T) {
 	svc := NewCheckoutService(
 		&fakeCartRepo{items: items},
 		&fakeAddrRepo{addr: addr},
-		&fakeShipping{fee: shippingPerBrand},
+		newFakeShipping(shippingPerBrand),
 	)
 
 	resp, err := svc.Preview(context.Background(), userID, addrID)
@@ -255,7 +280,7 @@ func TestPreview_BelowMinOrder(t *testing.T) {
 	svc := NewCheckoutService(
 		&fakeCartRepo{items: items},
 		&fakeAddrRepo{addr: addr},
-		&fakeShipping{fee: 20000},
+		newFakeShipping(20000),
 	)
 
 	resp, err := svc.Preview(context.Background(), userID, addrID)
@@ -264,4 +289,71 @@ func TestPreview_BelowMinOrder(t *testing.T) {
 	assert.False(t, resp.MeetsMinOrder)
 	assert.Equal(t, int64(10000), resp.SubtotalVND)
 	assert.Equal(t, domain.MinOrderValueVND, resp.MinOrderValueVND)
+}
+
+func TestPreview_ReturnsCarrierOptions(t *testing.T) {
+	userID := uuid.New()
+	addrID := uuid.New()
+	addr := makeAddr(userID) // has CityCode/DistrictCode/WardCode set
+	addr.ID = addrID
+
+	items := []*cartdomain.CartItemView{
+		{
+			VariantID: uuid.New(), ProductID: uuid.New(),
+			ProductName: "Shirt X", SKU: "SX-001", Color: "Blue", Size: "M",
+			Qty: 1, CurrentPrice: 150000,
+			BrandID: uuid.New(), BrandSlug: "brand-x", BrandName: "Brand X",
+			StockQty: 5, Unavailable: false,
+		},
+	}
+
+	sp := stubProvider{opts: []shippingdomain.ShippingOption{
+		{Carrier: "ghnv3", CarrierName: "GHN", Service: "standard", AmountVND: 25000, ETA: "2 ngày"},
+		{Carrier: "ghtk", CarrierName: "GHTK", Service: "standard", AmountVND: 20000, ETA: "3 ngày"},
+	}}
+
+	svc := NewCheckoutService(
+		&fakeCartRepo{items: items},
+		&fakeAddrRepo{addr: addr},
+		sp,
+	)
+
+	resp, err := svc.Preview(context.Background(), userID, addrID)
+	require.NoError(t, err)
+	assert.False(t, resp.AddressIncomplete, "should not be incomplete")
+	require.Len(t, resp.SubOrders, 1)
+	assert.Len(t, resp.SubOrders[0].ShippingOptions, 2, "want 2 options")
+	// cheapest is 20000 (ghtk), so shipping fee and grand total should use that
+	assert.Equal(t, int64(20000), resp.SubOrders[0].ShippingFeeVND)
+	assert.Equal(t, int64(20000), resp.ShippingTotalVND)
+}
+
+func TestPreview_AddressIncompleteWhenNoCodes(t *testing.T) {
+	userID := uuid.New()
+	addrID := uuid.New()
+	addr := makeAddrNoCodes(userID) // no CityCode/DistrictCode/WardCode
+	addr.ID = addrID
+
+	items := []*cartdomain.CartItemView{
+		{
+			VariantID: uuid.New(), ProductID: uuid.New(),
+			ProductName: "Pants Y", SKU: "PY-001", Color: "Black", Size: "32",
+			Qty: 1, CurrentPrice: 200000,
+			BrandID: uuid.New(), BrandSlug: "brand-y", BrandName: "Brand Y",
+			StockQty: 3, Unavailable: false,
+		},
+	}
+
+	svc := NewCheckoutService(
+		&fakeCartRepo{items: items},
+		&fakeAddrRepo{addr: addr},
+		stubProvider{}, // provider should NOT be called when address is incomplete
+	)
+
+	resp, err := svc.Preview(context.Background(), userID, addrID)
+	require.NoError(t, err)
+	assert.True(t, resp.AddressIncomplete, "want AddressIncomplete=true")
+	require.Len(t, resp.SubOrders, 1)
+	assert.Empty(t, resp.SubOrders[0].ShippingOptions)
+	assert.Equal(t, int64(0), resp.SubOrders[0].ShippingFeeVND)
 }

@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	branddomain "github.com/wearwhere/wearwhere_be/internal/brand/domain"
 	"github.com/wearwhere/wearwhere_be/internal/order/domain"
@@ -19,6 +21,7 @@ type brandPickupRepo interface {
 }
 
 type FulfillmentService struct {
+	pool      *pgxpool.Pool
 	orderRepo orderrepo.OrderRepo
 	subOrder  orderrepo.SubOrderRepo
 	items     orderrepo.OrderItemRepo
@@ -28,10 +31,11 @@ type FulfillmentService struct {
 }
 
 func NewFulfillmentService(
+	pool *pgxpool.Pool,
 	or orderrepo.OrderRepo, sr orderrepo.SubOrderRepo,
 	ir orderrepo.OrderItemRepo, gs goship.Service, ba brandPickupRepo, d weight.Defaults,
 ) *FulfillmentService {
-	return &FulfillmentService{orderRepo: or, subOrder: sr, items: ir, goship: gs, brandAddr: ba, defaults: d}
+	return &FulfillmentService{pool: pool, orderRepo: or, subOrder: sr, items: ir, goship: gs, brandAddr: ba, defaults: d}
 }
 
 func (s *FulfillmentService) loadOwned(ctx context.Context, brandID, subOrderID uuid.UUID) (*domain.SubOrder, error) {
@@ -124,9 +128,21 @@ func (s *FulfillmentService) Confirm(ctx context.Context, brandID, subOrderID uu
 }
 
 func (s *FulfillmentService) Ship(ctx context.Context, brandID, subOrderID uuid.UUID, carrierOverride string) error {
-	so, err := s.loadOwned(ctx, brandID, subOrderID)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	so, err := s.subOrder.GetByIDForUpdate(ctx, tx, subOrderID)
+	if err != nil {
+		if errors.Is(err, orderrepo.ErrNotFound) {
+			return domain.ErrSubOrderNotFound
+		}
+		return err
+	}
+	if so.BrandID != brandID {
+		return domain.ErrNotBrandOwner
 	}
 	ord, err := s.orderRepo.GetByID(ctx, so.OrderID)
 	if err != nil {
@@ -143,7 +159,6 @@ func (s *FulfillmentService) Ship(ctx context.Context, brandID, subOrderID uuid.
 	if err != nil || from == nil || from.CityCode == nil || from.DistrictCode == nil {
 		return fmt.Errorf("%w: brand pickup address incomplete", domain.ErrShipmentCreateFailed)
 	}
-
 	its, err := s.items.ListBySubOrderID(ctx, so.ID)
 	if err != nil {
 		return err
@@ -153,7 +168,6 @@ func (s *FulfillmentService) Ship(ctx context.Context, brandID, subOrderID uuid.
 		wItems = append(wItems, weight.Item{Qty: it.Qty})
 	}
 	parcel := weight.Aggregate(wItems, s.defaults)
-
 	carrier := derefStr(so.ShippingCarrier)
 	if carrierOverride != "" {
 		carrier = carrierOverride
@@ -162,7 +176,6 @@ func (s *FulfillmentService) Ship(ctx context.Context, brandID, subOrderID uuid.
 	if ord.PaymentMethod == domain.PaymentMethodCOD {
 		cod = so.SubtotalVND + so.ShippingFeeVND
 	}
-
 	rates, err := s.goship.Rates(ctx, goship.RateReq{
 		From:   goship.Address{CityCode: *from.CityCode, DistrictCode: *from.DistrictCode},
 		To:     goship.Address{CityCode: *to.CityCode, DistrictCode: *to.DistrictCode},
@@ -181,7 +194,6 @@ func (s *FulfillmentService) Ship(ctx context.Context, brandID, subOrderID uuid.
 	if rate == nil {
 		return domain.ErrCarrierUnavailable
 	}
-
 	resp, err := s.goship.CreateShipment(ctx, goship.ShipmentReq{
 		RateID:   rate.ID,
 		From:     shipAddrFromBrand(from),
@@ -192,7 +204,10 @@ func (s *FulfillmentService) Ship(ctx context.Context, brandID, subOrderID uuid.
 	if err != nil {
 		return fmt.Errorf("%w: %v", domain.ErrShipmentCreateFailed, err)
 	}
-	return s.subOrder.UpdateShipped(ctx, nil, so.ID, resp.TrackingCode, resp.GoshipCode, rate.Carrier, resp.FeeVND, resp.LabelURL)
+	if err := s.subOrder.UpdateShipped(ctx, tx, so.ID, resp.TrackingCode, resp.GoshipCode, rate.Carrier, resp.FeeVND, resp.LabelURL); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func derefStr(p *string) string {

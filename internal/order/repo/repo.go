@@ -49,6 +49,7 @@ type SubOrderRepo interface {
 	ListByOrderID(ctx context.Context, orderID uuid.UUID) ([]*domain.SubOrder, error)
 	CancelAllByOrderID(ctx context.Context, db DBTX, orderID uuid.UUID) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.SubOrder, error)
+	GetByIDForUpdate(ctx context.Context, db DBTX, id uuid.UUID) (*domain.SubOrder, error)
 	GetByTrackingNoForUpdate(ctx context.Context, db DBTX, trackingNo string) (*domain.SubOrder, error)
 	ListByBrand(ctx context.Context, brandID uuid.UUID, statuses []domain.SubOrderStatus, page, pageSize int) (items []*domain.SubOrder, total int, err error)
 	UpdateConfirmed(ctx context.Context, db DBTX, id uuid.UUID) error

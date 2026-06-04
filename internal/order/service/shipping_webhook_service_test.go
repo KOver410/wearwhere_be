@@ -67,6 +67,7 @@ func placeConfirmShipCOD(t *testing.T, s testSetup, mockClient *goship.MockClien
 	require.NoError(t, err)
 
 	fulfillSvc := service.NewFulfillmentService(
+		s.Pool,
 		orderrepo.NewOrderPG(s.Pool),
 		orderrepo.NewSubOrderPG(s.Pool),
 		orderrepo.NewOrderItemPG(s.Pool),

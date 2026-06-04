@@ -83,7 +83,7 @@ func (s *ShippingWebhookService) HandleGoshipWebhook(ctx context.Context, p gosh
 			if ord.PaymentMethod == domain.PaymentMethodCOD {
 				pay, err := s.payment.GetByOrderID(ctx, so.OrderID)
 				if err == nil && pay.Status == domain.PaymentStatusPending {
-					if err := s.payment.UpdateOnPaid(ctx, tx, pay.ID, []byte(`{"source":"cod_delivered"}`)); err != nil {
+					if err := s.payment.UpdateOnPaid(ctx, tx, pay.ID, []byte(`{"source":"cod_delivered"}`)); err != nil && !errors.Is(err, paymentdomain.ErrIdempotent) {
 						return err
 					}
 				} else if err != nil && !errors.Is(err, paymentdomain.ErrPaymentNotFound) {

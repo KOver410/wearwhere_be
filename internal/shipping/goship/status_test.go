@@ -16,6 +16,7 @@ func TestMapStatus(t *testing.T) {
 		{"returned flag", "", "Hoàn hàng", 1, 0, CategoryOther},
 		{"lost flag", "", "Thất lạc", 0, 1, CategoryOther},
 		{"unknown -> shipped", "555", "Đang vận chuyển", 0, 0, CategoryShipped},
+		{"pickup success not delivered", "", "Lấy hàng thành công", 0, 0, CategoryShipped},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

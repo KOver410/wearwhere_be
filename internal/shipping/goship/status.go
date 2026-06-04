@@ -13,7 +13,7 @@ const (
 
 // deliveredHints are matched case-insensitively against status_text as a fallback
 // while numeric codes aren't fully catalogued.
-var deliveredHints = []string{"đã giao", "giao thành công", "delivered", "thành công"}
+var deliveredHints = []string{"đã giao", "giao thành công", "delivered"}
 
 // MapStatus maps a Goship webhook status to a coarse category.
 // Returned/lost shipments are CategoryOther (recorded, not auto-restocked — out of Spec B scope).

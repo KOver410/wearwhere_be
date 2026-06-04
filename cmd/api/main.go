@@ -205,6 +205,7 @@ func main() {
 
 	// ── Fulfillment + shipping webhook services ──
 	fulfillmentSvc := orderservice.NewFulfillmentService(
+		pgPool,
 		orderRepoSvc, subOrderRepo, orderItemRepo, goshipClient, addressRepo,
 		weight.Defaults{
 			WeightG:  cfg.Goship.DefaultItemWeightG,
@@ -299,6 +300,9 @@ func main() {
 	if cfg.Payos.Mode == "mock" {
 		devGroup := r.Group("/dev")
 		paymenthandler.MountDev(devGroup, paymentH)
+	}
+	if cfg.Goship.Mode == "" || cfg.Goship.Mode == "mock" {
+		devGroup := r.Group("/dev")
 		orderhandler.MountShippingDev(devGroup, shippingWebhookHandler)
 	}
 

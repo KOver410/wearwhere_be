@@ -127,6 +127,15 @@ func (r *SubOrderPG) GetByID(ctx context.Context, id uuid.UUID) (*domain.SubOrde
 	return scanSubOrder(row, true)
 }
 
+func (r *SubOrderPG) GetByIDForUpdate(ctx context.Context, db DBTX, id uuid.UUID) (*domain.SubOrder, error) {
+	if db == nil {
+		db = r.db
+	}
+	row := db.QueryRow(ctx,
+		`SELECT `+subOrderCols+` FROM sub_orders WHERE id = $1 FOR UPDATE`, id)
+	return scanSubOrder(row, false)
+}
+
 func (r *SubOrderPG) GetByTrackingNoForUpdate(ctx context.Context, db DBTX, trackingNo string) (*domain.SubOrder, error) {
 	if db == nil {
 		db = r.db
@@ -241,7 +250,7 @@ func (r *SubOrderPG) AllDelivered(ctx context.Context, db DBTX, orderID uuid.UUI
 	}
 	var notDelivered int
 	err := db.QueryRow(ctx,
-		`SELECT COUNT(*) FROM sub_orders WHERE order_id=$1 AND status <> 'delivered'`, orderID).Scan(&notDelivered)
+		`SELECT COUNT(*) FROM sub_orders WHERE order_id=$1 AND status NOT IN ('delivered','cancelled')`, orderID).Scan(&notDelivered)
 	if err != nil {
 		return false, err
 	}

@@ -20,6 +20,7 @@ import (
 // buildFulfillmentSvc constructs a FulfillmentService backed by the test pool using mock goship.
 func buildFulfillmentSvc(s testSetup) *service.FulfillmentService {
 	return service.NewFulfillmentService(
+		s.Pool,
 		orderrepo.NewOrderPG(s.Pool),
 		orderrepo.NewSubOrderPG(s.Pool),
 		orderrepo.NewOrderItemPG(s.Pool),

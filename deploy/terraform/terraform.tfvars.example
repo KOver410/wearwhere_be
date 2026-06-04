@@ -1,0 +1,6 @@
+project_id       = "wearwhere-prod"
+ssh_user         = "deploy"
+ssh_pubkey_path  = "C:/Users/PC/.ssh/wearwhere.pub"
+allowed_ssh_cidr = "1.2.3.4/32"
+repo_url         = "https://github.com/<you>/wearwhere_be.git"
+bucket_name      = "wearwhere-prod-assets"

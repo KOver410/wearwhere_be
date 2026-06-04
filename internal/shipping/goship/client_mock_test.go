@@ -40,3 +40,27 @@ func TestMock_Cities_NonEmpty(t *testing.T) {
 		t.Fatalf("Cities empty/err: %v", err)
 	}
 }
+
+func TestMock_CreateShipment(t *testing.T) {
+	m := NewMockClient()
+	r1, err := m.CreateShipment(context.Background(), ShipmentReq{Parcel: Parcel{AmountVND: 500000}})
+	if err != nil {
+		t.Fatalf("CreateShipment: %v", err)
+	}
+	if r1.TrackingCode != "MOCK-TRK-1" || r1.GoshipCode != "MOCK-GS-1" {
+		t.Fatalf("unexpected codes: %+v", r1)
+	}
+	if r1.FeeVND != 20000 {
+		t.Errorf("fee = %d, want 20000 (shipping cost, not goods value)", r1.FeeVND)
+	}
+	r2, _ := m.CreateShipment(context.Background(), ShipmentReq{})
+	if r2.TrackingCode != "MOCK-TRK-2" {
+		t.Errorf("seq should increment: %s", r2.TrackingCode)
+	}
+}
+
+func TestMock_VerifyWebhookSignature_AlwaysOK(t *testing.T) {
+	if err := NewMockClient().VerifyWebhookSignature([]byte("anything"), "whatever"); err != nil {
+		t.Errorf("mock verify should accept any signature, got %v", err)
+	}
+}

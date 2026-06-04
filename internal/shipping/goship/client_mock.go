@@ -4,9 +4,10 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sync/atomic"
 )
 
-type MockClient struct{}
+type MockClient struct{ seq atomic.Int64 }
 
 func NewMockClient() *MockClient { return &MockClient{} }
 
@@ -52,3 +53,16 @@ func (m *MockClient) Rates(_ context.Context, r RateReq) ([]Rate, error) {
 	}
 	return out, nil
 }
+
+func (m *MockClient) CreateShipment(_ context.Context, r ShipmentReq) (*ShipmentResp, error) {
+	n := m.seq.Add(1)
+	const fee int64 = 20000 // deterministic mock shipping cost (not the goods value)
+	return &ShipmentResp{
+		TrackingCode: fmt.Sprintf("MOCK-TRK-%d", n),
+		GoshipCode:   fmt.Sprintf("MOCK-GS-%d", n),
+		LabelURL:     "https://mock.goship.local/label",
+		FeeVND:       fee,
+	}, nil
+}
+
+func (m *MockClient) VerifyWebhookSignature(_ []byte, _ string) error { return nil }

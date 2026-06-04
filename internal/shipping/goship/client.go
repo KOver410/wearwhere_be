@@ -6,8 +6,10 @@ import (
 )
 
 var (
-	ErrRates    = errors.New("goship: failed to fetch rates")
-	ErrLocation = errors.New("goship: failed to fetch location list")
+	ErrRates            = errors.New("goship: failed to fetch rates")
+	ErrLocation         = errors.New("goship: failed to fetch location list")
+	ErrCreateShipment   = errors.New("goship: failed to create shipment")
+	ErrSignatureInvalid = errors.New("goship: invalid webhook signature")
 )
 
 // Location is a city, district, or ward as returned by Goship.
@@ -55,4 +57,53 @@ type Client interface {
 	Districts(ctx context.Context, cityCode string) ([]Location, error)
 	Wards(ctx context.Context, districtCode string) ([]Location, error)
 	Rates(ctx context.Context, r RateReq) ([]Rate, error)
+}
+
+// ShipmentAddress is a sender/recipient for shipment creation.
+type ShipmentAddress struct {
+	Name         string
+	Phone        string
+	Street       string
+	WardCode     string
+	DistrictCode string
+	CityCode     string
+}
+
+type ShipmentReq struct {
+	RateID   string
+	From     ShipmentAddress
+	To       ShipmentAddress
+	Parcel   Parcel
+	OrderRef string
+}
+
+type ShipmentResp struct {
+	TrackingCode string
+	GoshipCode   string
+	LabelURL     string
+	FeeVND       int64
+}
+
+type WebhookPayload struct {
+	GCode        string `json:"gcode"`
+	Code         string `json:"code"`
+	OrderID      string `json:"order_id"`
+	Status       string `json:"status"`
+	StatusText   string `json:"status_text"`
+	Message      string `json:"message"`
+	TrackingURL  string `json:"tracking_url"`
+	IsReturn     int    `json:"is_return"`
+	IsLost       int    `json:"is_lost"`
+	CarrierShort string `json:"carrier_short_name"`
+	UpdateTime   int64  `json:"update_time"`
+}
+
+type Shipper interface {
+	CreateShipment(ctx context.Context, r ShipmentReq) (*ShipmentResp, error)
+	VerifyWebhookSignature(rawBody []byte, signature string) error
+}
+
+type Service interface {
+	Client
+	Shipper
 }

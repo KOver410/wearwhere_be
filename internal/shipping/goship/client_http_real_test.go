@@ -17,7 +17,7 @@ func realClient(t *testing.T) *HTTPClient {
 	if base == "" {
 		base = "https://sandbox.goship.io/api/v2"
 	}
-	return NewHTTPClient(tok, base)
+	return NewHTTPClient(tok, "", base)
 }
 
 func TestRealGoship_Cities(t *testing.T) {

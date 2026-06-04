@@ -3,6 +3,9 @@ package goship
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,16 +14,18 @@ import (
 )
 
 type HTTPClient struct {
-	token      string
-	baseURL    string
-	httpClient *http.Client
+	token        string
+	clientSecret string
+	baseURL      string
+	httpClient   *http.Client
 }
 
-func NewHTTPClient(token, baseURL string) *HTTPClient {
+func NewHTTPClient(token, clientSecret, baseURL string) *HTTPClient {
 	return &HTTPClient{
-		token:      token,
-		baseURL:    baseURL,
-		httpClient: &http.Client{Timeout: 10 * time.Second},
+		token:        token,
+		clientSecret: clientSecret,
+		baseURL:      baseURL,
+		httpClient:   &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -127,4 +132,53 @@ func (c *HTTPClient) Rates(ctx context.Context, r RateReq) ([]Rate, error) {
 		})
 	}
 	return out, nil
+}
+
+func (c *HTTPClient) CreateShipment(ctx context.Context, r ShipmentReq) (*ShipmentResp, error) {
+	body := map[string]any{
+		"shipment": map[string]any{
+			"rate": r.RateID,
+			"address_from": map[string]any{
+				"name": r.From.Name, "phone": r.From.Phone, "street": r.From.Street,
+				"ward": r.From.WardCode, "district": r.From.DistrictCode, "city": r.From.CityCode,
+			},
+			"address_to": map[string]any{
+				"name": r.To.Name, "phone": r.To.Phone, "street": r.To.Street,
+				"ward": r.To.WardCode, "district": r.To.DistrictCode, "city": r.To.CityCode,
+			},
+			"parcel": map[string]any{
+				"cod": r.Parcel.CODVND, "amount": r.Parcel.AmountVND,
+				"weight": r.Parcel.WeightG, "length": r.Parcel.LengthCM,
+				"width": r.Parcel.WidthCM, "height": r.Parcel.HeightCM,
+			},
+			"order_id": r.OrderRef,
+		},
+	}
+	var env struct {
+		Data struct {
+			Code     string `json:"code"`
+			GCode    string `json:"gcode"`
+			Label    string `json:"label"`
+			TotalFee int64  `json:"total_fee"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/shipments", body, &env); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrCreateShipment, err)
+	}
+	return &ShipmentResp{
+		TrackingCode: env.Data.Code,
+		GoshipCode:   env.Data.GCode,
+		LabelURL:     env.Data.Label,
+		FeeVND:       env.Data.TotalFee,
+	}, nil
+}
+
+func (c *HTTPClient) VerifyWebhookSignature(rawBody []byte, signature string) error {
+	mac := hmac.New(sha256.New, []byte(c.clientSecret))
+	mac.Write(rawBody)
+	expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(expected), []byte(signature)) {
+		return ErrSignatureInvalid
+	}
+	return nil
 }

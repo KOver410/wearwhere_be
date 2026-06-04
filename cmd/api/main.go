@@ -47,6 +47,7 @@ import (
 	productservice "github.com/wearwhere/wearwhere_be/internal/product/service"
 	"github.com/wearwhere/wearwhere_be/internal/shared/storage"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/goship"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/location"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/weight"
 	wishlisthandler "github.com/wearwhere/wearwhere_be/internal/wishlist/handler"
@@ -115,6 +116,17 @@ func main() {
 		log.Fatalf("storage: %v", err)
 	}
 
+	// ── shipping client + location ──
+	goshipClient, err := goship.NewFromConfig(goship.Config{
+		Mode:    cfg.Goship.Mode,
+		Token:   cfg.Goship.Token,
+		BaseURL: cfg.Goship.BaseURL,
+	})
+	if err != nil {
+		log.Fatalf("goship client: %v", err)
+	}
+	locSvc := location.NewService(goshipClient, 24*time.Hour)
+
 	// ── services ──
 	tokenSvc := service.NewTokenService(jwtIssuer, sessionRepo, cfg.JWT.RefreshTTL)
 	otpSvc := service.NewOTPService(otpStore, mailerSvc, smsSvc, cfg.Limit)
@@ -122,7 +134,7 @@ func main() {
 	passwordSvc := service.NewPasswordService(userRepo, sessionRepo, otpSvc, authSvc)
 	profileSvc := service.NewProfileService(userRepo, sessionRepo)
 	socialSvc := service.NewSocialService(userRepo, tokenSvc, cfg.OAuth)
-	brandSvc := brandservice.New(brandRepo, addressRepo)
+	brandSvc := brandservice.New(brandRepo, addressRepo, locSvc)
 	productSvc := productservice.New(
 		productRepo, variantRepo, imageRepo,
 		categoryRepo, styleTagRepo,
@@ -130,7 +142,7 @@ func main() {
 	)
 	catalogRepo := productrepo.NewCatalogPG(pgPool)
 	catalogSvc := productservice.NewCatalog(catalogRepo, productRepo)
-	customerAddrSvc := customeraddrservice.New(customerAddrRepo)
+	customerAddrSvc := customeraddrservice.New(customerAddrRepo, locSvc)
 	wishlistSvc := wishlistservice.New(wishlistRepo, productRepo)
 	cartSvc := cartservice.New(cartRepo, variantRepo)
 
@@ -141,14 +153,7 @@ func main() {
 	paymentRepo := paymentrepo.NewPaymentPG(pgPool)
 
 	// ── shipping provider ──
-	goshipClient, err := goship.NewFromConfig(goship.Config{
-		Mode:    cfg.Goship.Mode,
-		Token:   cfg.Goship.Token,
-		BaseURL: cfg.Goship.BaseURL,
-	})
-	if err != nil {
-		log.Fatalf("goship client: %v", err)
-	}
+
 	shippingProvider, err := provider.NewFromConfig(
 		provider.Config{Provider: cfg.Shipping.Provider},
 		brandRepo,
@@ -268,6 +273,7 @@ func main() {
 	carthandler.Mount(customerGroup, cartHandler)
 	orderhandler.Mount(customerGroup, orderH)
 
+	location.RegisterRoutes(v1, location.NewHandler(locSvc))
 	paymenthandler.MountPublic(v1, paymentH)
 
 	if cfg.Payos.Mode == "mock" {

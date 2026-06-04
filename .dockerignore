@@ -1,0 +1,10 @@
+.git/
+docs/
+*.md
+*.exe
+bin/
+uploads/
+.env
+.env.*
+.beads/
+SRS_wearwhere.pdf

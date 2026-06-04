@@ -1892,7 +1892,7 @@ git commit -m "feat(wiring): goship client + provider + location routes in main"
 
 ---
 
-### Task 17: Manual sandbox smoke + spec contract reconciliation ⏳ DEFERRED — needs a real `GOSHIP_TOKEN` (sandbox). Gated test `goship_real` skips without it; run when the token is available, then reconcile client_http.go + spec §11.
+### Task 17: Manual sandbox smoke + spec contract reconciliation ✅ DONE (520f0a8) — verified against live api.goship.io; client_http.go needed NO change; carrier=display name (no short code) → mock now mirrors prod; spec §11 updated with confirmed contract. (Token in gitignored .env; not committed.)
 
 > **Post-implementation review notes (tracked, not blocking Spec A):**
 > - **COD amount (Important):** `order_service.go` sends `codVND = g.subtotal` (merchandise only, not incl. shipping) to Goship rates. Deliberate Spec A simplification (circular: need fee to know COD). Refine in Spec B at shipment-creation (two-pass quote, or subtotal+fee). 
@@ -1930,14 +1930,14 @@ git commit -m "fix(goship): reconcile HTTP client with sandbox contract; documen
 
 ---
 
-## Definition of Done (Spec A)
+## Definition of Done (Spec A) — ✅ ALL MET
 
-- [ ] Migrations 000027–000030 applied; address tables have codes, variants have dims, sub_orders has `shipping_carrier`.
-- [ ] `GOSHIP_*` config loads with sane defaults; `SHIPPING_PROVIDER=goship` selects the Goship provider.
-- [ ] `go test ./...` and `go test -tags integration -p 1 ./...` both green.
-- [ ] `GET /api/v1/locations/{cities,cities/:c/districts,districts/:d/wards}` return data (cached).
-- [ ] Checkout preview returns per-brand carrier options; incomplete address sets `address_incomplete` and blocks place-order.
-- [ ] Place-order re-quotes by chosen carrier, stores authoritative `shipping_fee_vnd` + `shipping_carrier`; unknown carrier → `ErrCarrierUnavailable`.
-- [ ] Real sandbox `Cities`/`Rates` confirmed (or skipped with token absent) and spec §11 updated with the confirmed contract.
+- [x] Migrations 000027–000030 applied; address tables have codes, variants have dims, sub_orders has `shipping_carrier`.
+- [x] `GOSHIP_*` config loads with sane defaults; `SHIPPING_PROVIDER=goship` selects the Goship provider.
+- [x] `go test ./...` and `go test -tags integration -p 1 ./...` both green (full module).
+- [x] `GET /api/v1/locations/{cities,cities/:c/districts,districts/:d/wards}` return data (cached).
+- [x] Checkout preview returns per-brand carrier options; incomplete address sets `address_incomplete` and blocks place-order.
+- [x] Place-order re-quotes by chosen carrier, stores authoritative `shipping_fee_vnd` + `shipping_carrier`; unknown carrier → `ErrCarrierUnavailable`.
+- [x] Live `Cities`/`Rates` confirmed against api.goship.io; spec §11 updated with the confirmed contract (carrier=display name; no short code).
 - [ ] Spec B (fulfillment: brand confirm/ship/deliver, shipment creation, tracking webhook, cancel) remains out of scope and is filed as the next plan.
 ```

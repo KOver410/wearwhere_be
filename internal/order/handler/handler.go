@@ -2,7 +2,6 @@
 package handler
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/wearwhere/wearwhere_be/internal/order/domain"
 	orderrepo "github.com/wearwhere/wearwhere_be/internal/order/repo"
 	"github.com/wearwhere/wearwhere_be/internal/order/service"
+	"github.com/wearwhere/wearwhere_be/pkg/httpx"
 )
 
 // Handler holds references to the checkout and order services.
@@ -32,23 +32,19 @@ func New(c *service.CheckoutService, o *service.OrderService) *Handler {
 func (h *Handler) PreviewCheckout(c *gin.Context) {
 	userID, ok := authmw.UserID(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		httpx.Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
 		return
 	}
 
 	addressID, err := uuid.Parse(c.Query("address_id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing or invalid address_id"})
+		httpx.Error(c, http.StatusBadRequest, "INVALID_ADDRESS_ID", "Missing or invalid address_id")
 		return
 	}
 
 	resp, err := h.checkout.Preview(c.Request.Context(), userID, addressID)
 	if err != nil {
-		if errors.Is(err, domain.ErrAddressNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "address_not_found"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writeOrderError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, resp)
@@ -59,36 +55,19 @@ func (h *Handler) PreviewCheckout(c *gin.Context) {
 func (h *Handler) PlaceOrder(c *gin.Context) {
 	userID, ok := authmw.UserID(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		httpx.Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
 		return
 	}
 
 	var req domain.PlaceOrderReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "detail": err.Error()})
+		httpx.Error(c, http.StatusBadRequest, "INVALID_BODY", "Invalid request body")
 		return
 	}
 
 	resp, pay, err := h.order.PlaceOrder(c.Request.Context(), userID, req)
 	if err != nil {
-		switch {
-		case errors.Is(err, domain.ErrCartEmpty):
-			c.JSON(http.StatusBadRequest, gin.H{"error": "cart_empty"})
-		case errors.Is(err, domain.ErrMinOrderValue):
-			c.JSON(http.StatusBadRequest, gin.H{"error": "min_order_value", "min_value_vnd": domain.MinOrderValueVND})
-		case errors.Is(err, domain.ErrAddressNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "address_not_found"})
-		case errors.Is(err, domain.ErrInsufficientStock):
-			c.JSON(http.StatusConflict, gin.H{"error": "insufficient_stock", "detail": err.Error()})
-		case errors.Is(err, domain.ErrVariantUnavailable):
-			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "variant_unavailable", "detail": err.Error()})
-		case errors.Is(err, domain.ErrInvalidPaymentMethod):
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_payment_method"})
-		case errors.Is(err, domain.ErrPayosLinkCreate):
-			c.JSON(http.StatusBadGateway, gin.H{"error": "payos_unavailable", "detail": err.Error()})
-		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		}
+		writeOrderError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"order": resp, "payment": pay})
@@ -99,7 +78,7 @@ func (h *Handler) PlaceOrder(c *gin.Context) {
 func (h *Handler) ListOrders(c *gin.Context) {
 	userID, ok := authmw.UserID(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		httpx.Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
 		return
 	}
 
@@ -125,7 +104,7 @@ func (h *Handler) ListOrders(c *gin.Context) {
 
 	resp, err := h.order.List(c.Request.Context(), filter)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writeOrderError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, resp)
@@ -136,18 +115,14 @@ func (h *Handler) ListOrders(c *gin.Context) {
 func (h *Handler) DetailOrder(c *gin.Context) {
 	userID, ok := authmw.UserID(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		httpx.Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
 		return
 	}
 
 	orderNo := c.Param("order_no")
 	resp, err := h.order.Detail(c.Request.Context(), userID, orderNo)
 	if err != nil {
-		if errors.Is(err, domain.ErrOrderNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "order_not_found"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writeOrderError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, resp)
@@ -158,7 +133,7 @@ func (h *Handler) DetailOrder(c *gin.Context) {
 func (h *Handler) CancelOrder(c *gin.Context) {
 	userID, ok := authmw.UserID(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		httpx.Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
 		return
 	}
 
@@ -168,24 +143,7 @@ func (h *Handler) CancelOrder(c *gin.Context) {
 
 	resp, err := h.order.Cancel(c.Request.Context(), userID, orderNo, req.Reason)
 	if err != nil {
-		switch {
-		case errors.Is(err, domain.ErrOrderNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "order_not_found"})
-		case errors.Is(err, domain.ErrCancelPaidNotSupported):
-			c.JSON(http.StatusConflict, gin.H{"error": "cancel_not_allowed", "subcode": "paid_not_supported"})
-		case errors.Is(err, domain.ErrCancelNotAllowed):
-			subcode := "already_shipped"
-			msg := err.Error()
-			for _, code := range []string{"already_shipped", "already_cancelled", "already_completed"} {
-				if strings.Contains(msg, code) {
-					subcode = code
-					break
-				}
-			}
-			c.JSON(http.StatusConflict, gin.H{"error": "cancel_not_allowed", "subcode": subcode})
-		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		}
+		writeOrderError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, resp)

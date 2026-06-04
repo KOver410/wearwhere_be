@@ -182,7 +182,12 @@ Dev: `POST /dev/goship/simulate` accepts `{tracking_no, status}` and calls the s
 - **Integration (`integration`):** confirm→ship with mock client stores tracking/cost/status; webhook `delivered` for a COD order → payment paid + stock committed + (single-brand) order completed; PayOS order delivered → order completed without touching payment; webhook idempotent (second delivered is a no-op); brand-owner guard (cross-brand → 403); ship blocked when order not `processing` (PayOS unpaid).
 - **Real (`goship_real`, gated):** confirm `POST /shipments` request/response field names against the live API — build the request and validate the rate step; do **not** create a real shipment unless an explicit opt-in env (`GOSHIP_ALLOW_REAL_CREATE=1`) is set.
 
-## 11. Open Items Pinned at Implementation
-- Exact `POST /shipments` request/response field names and the returned tracking/gcode/label/fee keys (confirm against api.goship.io; avoid creating a live shipment).
-- The full Goship delivery status code set and which map to delivered vs in-transit vs return/lost (seed `status.go` with the known `"901"` + delivered; extend on observation).
-- Whether `address_from`/`address_to` in `/shipments` require fields beyond district/city codes (name, phone, street) — fill from brand pickup address + order snapshot.
+## 11. Contract Status (as of impl 2026-06-04)
+
+**Confirmed / validated:**
+- `POST /rates` works against the live `https://api.goship.io/api/v2` (Spec A §11) and is the source of the fresh `rate_id` used at ship time. The gated test `TestRealGoship_CreateShipment_Gated` exercises the rates→(would-create) path live and logs the rate to be used.
+- Webhook HMAC verification, status mapping, the full fulfillment lifecycle, COD settlement, and order completion are all covered by integration tests against the MOCK Goship client — no real shipments are created in tests.
+
+**NOT yet confirmed (assumed shape, isolated in `client_http.go`):**
+- `POST /shipments` request/response field names (the returned tracking `code` / `gcode` / `label` / `total_fee` keys, and whether `address_from`/`address_to` require fields beyond name/phone/street/district/city). The configured token is a **production** token, so the real `CreateShipment` is gated behind `GOSHIP_ALLOW_REAL_CREATE=1` to avoid booking a real delivery order. **Before production cutover**, run the gated test against a sandbox account (or with an intentional single booking) and reconcile the field mapping in `client_http.go` + this section.
+- The full Goship delivery status code set. `status.go` seeds the known `"901"` (waiting pickup) + delivered-text matching; numeric codes are extended as observed on live shipments. Return/lost shipments are recorded (status_text) but not auto-restocked (deferred).

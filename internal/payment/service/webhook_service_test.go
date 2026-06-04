@@ -84,8 +84,9 @@ func placePayosOrder(t *testing.T) (orderCode int64, variantID interface{}) {
 	)
 
 	_, pay, err := svc.PlaceOrder(ctx, customer.ID, orderdomain.PlaceOrderReq{
-		AddressID:     addr.ID,
-		PaymentMethod: orderdomain.PaymentMethodPayos,
+		AddressID:          addr.ID,
+		PaymentMethod:      orderdomain.PaymentMethodPayos,
+		ShippingSelections: []orderdomain.ShippingSelection{{BrandID: brand.ID, Carrier: "flat"}},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, pay)
@@ -134,8 +135,9 @@ func TestWebhook_Success_CommitsStockAndOrder(t *testing.T) {
 	)
 
 	_, _, err := orderSvc.PlaceOrder(ctx, customer.ID, orderdomain.PlaceOrderReq{
-		AddressID:     addr.ID,
-		PaymentMethod: orderdomain.PaymentMethodPayos,
+		AddressID:          addr.ID,
+		PaymentMethod:      orderdomain.PaymentMethodPayos,
+		ShippingSelections: []orderdomain.ShippingSelection{{BrandID: brand.ID, Carrier: "flat"}},
 	})
 	require.NoError(t, err)
 
@@ -218,8 +220,9 @@ func TestWebhook_Idempotent_SecondCallNoOp(t *testing.T) {
 	)
 
 	_, _, err := orderSvc.PlaceOrder(ctx, customer.ID, orderdomain.PlaceOrderReq{
-		AddressID:     addr.ID,
-		PaymentMethod: orderdomain.PaymentMethodPayos,
+		AddressID:          addr.ID,
+		PaymentMethod:      orderdomain.PaymentMethodPayos,
+		ShippingSelections: []orderdomain.ShippingSelection{{BrandID: brand.ID, Carrier: "flat"}},
 	})
 	require.NoError(t, err)
 

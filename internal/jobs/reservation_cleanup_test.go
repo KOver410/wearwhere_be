@@ -31,6 +31,7 @@ type jobSetup struct {
 	Pool      *pgxpool.Pool
 	UserID    uuid.UUID
 	AddrID    uuid.UUID
+	BrandID   uuid.UUID
 	VariantID uuid.UUID
 	Svc       *service.OrderService
 }
@@ -81,6 +82,7 @@ func setupJobTest(t *testing.T) jobSetup {
 		Pool:      pool,
 		UserID:    customer.ID,
 		AddrID:    addr.ID,
+		BrandID:   brand.ID,
 		VariantID: variantID,
 		Svc:       buildJobSvc(pool),
 	}
@@ -111,8 +113,9 @@ func TestCleanupOnce_ExpiresOldPendingPayments(t *testing.T) {
 
 	// Place PayOS order — this reserves stock and creates a pending payment.
 	_, _, err := s.Svc.PlaceOrder(ctx, s.UserID, domain.PlaceOrderReq{
-		AddressID:     s.AddrID,
-		PaymentMethod: domain.PaymentMethodPayos,
+		AddressID:          s.AddrID,
+		PaymentMethod:      domain.PaymentMethodPayos,
+		ShippingSelections: []domain.ShippingSelection{{BrandID: s.BrandID, Carrier: "flat"}},
 	})
 	require.NoError(t, err)
 
@@ -166,8 +169,9 @@ func TestCleanupOnce_SkipsRecentPayments(t *testing.T) {
 
 	// Place PayOS order.
 	_, _, err := s.Svc.PlaceOrder(ctx, s.UserID, domain.PlaceOrderReq{
-		AddressID:     s.AddrID,
-		PaymentMethod: domain.PaymentMethodPayos,
+		AddressID:          s.AddrID,
+		PaymentMethod:      domain.PaymentMethodPayos,
+		ShippingSelections: []domain.ShippingSelection{{BrandID: s.BrandID, Carrier: "flat"}},
 	})
 	require.NoError(t, err)
 

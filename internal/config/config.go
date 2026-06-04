@@ -190,6 +190,7 @@ func Load() (*Config, error) {
 	cfg.Goship = GoshipConfig{
 		Mode:               getEnv("GOSHIP_MODE", "mock"),
 		Token:              getEnv("GOSHIP_TOKEN", ""),
+		ClientSecret:       getEnv("GOSHIP_CLIENT_SECRET", ""),
 		BaseURL:            getEnv("GOSHIP_BASE_URL", "https://sandbox.goship.io/api/v2"),
 		DefaultItemWeightG: getInt("GOSHIP_DEFAULT_ITEM_WEIGHT_G", 500),
 		DefaultLengthCM:    getInt("GOSHIP_DEFAULT_LENGTH_CM", 20),
@@ -220,6 +221,7 @@ type ShippingConfig struct {
 type GoshipConfig struct {
 	Mode               string // mock | sandbox | production
 	Token              string
+	ClientSecret       string
 	BaseURL            string
 	DefaultItemWeightG int
 	DefaultLengthCM    int

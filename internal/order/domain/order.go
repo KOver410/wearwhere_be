@@ -52,8 +52,12 @@ type SubOrder struct {
 	Status           SubOrderStatus
 	TrackingNo       *string
 	ShippingCarrier  *string
-	ShippingProvider *string
-	ConfirmedAt      *time.Time
+	ShippingProvider   *string
+	ShippingCostVND    *int64
+	GoshipShipmentCode *string
+	TrackingURL        *string
+	ShippingStatusText *string
+	ConfirmedAt        *time.Time
 	ShippedAt        *time.Time
 	DeliveredAt      *time.Time
 	CancelledAt      *time.Time

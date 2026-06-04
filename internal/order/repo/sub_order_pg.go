@@ -18,6 +18,7 @@ func NewSubOrderPG(db DBTX) *SubOrderPG { return &SubOrderPG{db: db} }
 const subOrderCols = `id, order_id, brand_id, subtotal_vnd, shipping_fee_vnd, total_vnd,
                       status, tracking_no, shipping_carrier, shipping_provider,
                       confirmed_at, shipped_at, delivered_at, cancelled_at,
+                      shipping_cost_vnd, goship_shipment_code, tracking_url, shipping_status_text,
                       created_at, updated_at`
 
 func scanSubOrder(row pgx.Row, includeBrandJoin bool) (*domain.SubOrder, error) {
@@ -27,6 +28,7 @@ func scanSubOrder(row pgx.Row, includeBrandJoin bool) (*domain.SubOrder, error) 
 			&s.ID, &s.OrderID, &s.BrandID, &s.SubtotalVND, &s.ShippingFeeVND, &s.TotalVND,
 			&s.Status, &s.TrackingNo, &s.ShippingCarrier, &s.ShippingProvider,
 			&s.ConfirmedAt, &s.ShippedAt, &s.DeliveredAt, &s.CancelledAt,
+			&s.ShippingCostVND, &s.GoshipShipmentCode, &s.TrackingURL, &s.ShippingStatusText,
 			&s.CreatedAt, &s.UpdatedAt,
 			&s.BrandSlug, &s.BrandName,
 		)
@@ -42,6 +44,7 @@ func scanSubOrder(row pgx.Row, includeBrandJoin bool) (*domain.SubOrder, error) 
 		&s.ID, &s.OrderID, &s.BrandID, &s.SubtotalVND, &s.ShippingFeeVND, &s.TotalVND,
 		&s.Status, &s.TrackingNo, &s.ShippingCarrier, &s.ShippingProvider,
 		&s.ConfirmedAt, &s.ShippedAt, &s.DeliveredAt, &s.CancelledAt,
+		&s.ShippingCostVND, &s.GoshipShipmentCode, &s.TrackingURL, &s.ShippingStatusText,
 		&s.CreatedAt, &s.UpdatedAt,
 	)
 	if err != nil {
@@ -73,6 +76,7 @@ func (r *SubOrderPG) ListByOrderID(ctx context.Context, orderID uuid.UUID) ([]*d
 		`SELECT s.id, s.order_id, s.brand_id, s.subtotal_vnd, s.shipping_fee_vnd, s.total_vnd,
 		        s.status, s.tracking_no, s.shipping_carrier, s.shipping_provider,
 		        s.confirmed_at, s.shipped_at, s.delivered_at, s.cancelled_at,
+		        s.shipping_cost_vnd, s.goship_shipment_code, s.tracking_url, s.shipping_status_text,
 		        s.created_at, s.updated_at,
 		        b.slug, b.name
 		   FROM sub_orders s

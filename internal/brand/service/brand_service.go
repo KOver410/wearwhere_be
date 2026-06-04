@@ -8,15 +8,18 @@ import (
 
 	"github.com/wearwhere/wearwhere_be/internal/brand/domain"
 	"github.com/wearwhere/wearwhere_be/internal/brand/repo"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/goship"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/location"
 )
 
 type Service struct {
 	brands    repo.BrandRepo
 	addresses repo.AddressRepo
+	loc       *location.Service
 }
 
-func New(b repo.BrandRepo, a repo.AddressRepo) *Service {
-	return &Service{brands: b, addresses: a}
+func New(b repo.BrandRepo, a repo.AddressRepo, loc *location.Service) *Service {
+	return &Service{brands: b, addresses: a, loc: loc}
 }
 
 func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (*domain.Brand, error) {
@@ -56,10 +59,16 @@ func (s *Service) ListAddresses(ctx context.Context, brandID uuid.UUID, includeP
 }
 
 func (s *Service) CreateAddress(ctx context.Context, brandID uuid.UUID, req *domain.CreateAddressRequest) (*domain.BrandAddress, error) {
+	if err := s.validateLocation(ctx, req.CityCode, req.DistrictCode, req.WardCode); err != nil {
+		return nil, err
+	}
 	return s.addresses.Create(ctx, brandID, req)
 }
 
 func (s *Service) UpdateAddress(ctx context.Context, id, brandID uuid.UUID, req *domain.UpdateAddressRequest) (*domain.BrandAddress, error) {
+	if err := s.validateLocation(ctx, req.CityCode, req.DistrictCode, req.WardCode); err != nil {
+		return nil, err
+	}
 	a, err := s.addresses.Update(ctx, id, brandID, req)
 	if errors.Is(err, repo.ErrNotFound) {
 		return nil, domain.ErrAddressNotFound
@@ -73,4 +82,33 @@ func (s *Service) DeleteAddress(ctx context.Context, id, brandID uuid.UUID) erro
 		return domain.ErrAddressNotFound
 	}
 	return err
+}
+
+// validateLocation checks that districtCode belongs to cityCode and wardCode
+// belongs to districtCode using the location service.
+func (s *Service) validateLocation(ctx context.Context, cityCode, districtCode, wardCode *string) error {
+	districts, err := s.loc.Districts(ctx, *cityCode)
+	if err != nil {
+		return domain.ErrInvalidLocation
+	}
+	if !containsCode(districts, *districtCode) {
+		return domain.ErrInvalidLocation
+	}
+	wards, err := s.loc.Wards(ctx, *districtCode)
+	if err != nil {
+		return domain.ErrInvalidLocation
+	}
+	if !containsCode(wards, *wardCode) {
+		return domain.ErrInvalidLocation
+	}
+	return nil
+}
+
+func containsCode(list []goship.Location, code string) bool {
+	for _, l := range list {
+		if l.Code == code {
+			return true
+		}
+	}
+	return false
 }

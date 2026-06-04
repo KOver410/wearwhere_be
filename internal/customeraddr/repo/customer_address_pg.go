@@ -98,7 +98,7 @@ func (r *AddressPG) Create(ctx context.Context, userID uuid.UUID, req *domain.Cr
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
          RETURNING `+addrCols,
 		userID, req.Label, req.RecipientName, req.RecipientPhone, req.AddressLine,
-		req.Ward, req.District, req.City, nil, nil, nil,
+		req.Ward, req.District, req.City, req.CityCode, req.DistrictCode, req.WardCode,
 		country, req.PostalCode, req.Note, isDefault))
 	if err != nil {
 		return nil, err
@@ -145,7 +145,7 @@ func (r *AddressPG) Update(ctx context.Context, id, userID uuid.UUID, req *domai
          WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL
          RETURNING `+addrCols,
 		id, userID, req.Label, req.RecipientName, req.RecipientPhone, req.AddressLine,
-		req.Ward, req.District, req.City, nil, nil, nil,
+		req.Ward, req.District, req.City, req.CityCode, req.DistrictCode, req.WardCode,
 		req.Country, req.PostalCode, req.Note, req.IsDefault))
 	if err != nil {
 		return nil, err

@@ -94,7 +94,7 @@ func (r *AddressPG) Create(ctx context.Context, brandID uuid.UUID, req *domain.C
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
          RETURNING `+addrCols,
 		brandID, req.Label, req.AddressLine, req.Ward, req.District, req.City,
-		nil, nil, nil,
+		req.CityCode, req.DistrictCode, req.WardCode,
 		country, req.PostalCode, req.Phone, req.Latitude, req.Longitude,
 		req.IsPrimary, isPublic)
 	return scanAddress(row)
@@ -131,7 +131,7 @@ func (r *AddressPG) Update(ctx context.Context, id, brandID uuid.UUID, req *doma
          WHERE id=$1 AND brand_id=$2 AND deleted_at IS NULL
          RETURNING `+addrCols,
 		id, brandID, req.Label, req.AddressLine, req.Ward, req.District, req.City,
-		nil, nil, nil,
+		req.CityCode, req.DistrictCode, req.WardCode,
 		req.Country, req.PostalCode, req.Phone, req.Latitude, req.Longitude,
 		req.IsPrimary, req.IsPublic)
 	return scanAddress(row)

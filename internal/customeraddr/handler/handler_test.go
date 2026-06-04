@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -17,6 +18,8 @@ import (
 	"github.com/wearwhere/wearwhere_be/internal/customeraddr/handler"
 	"github.com/wearwhere/wearwhere_be/internal/customeraddr/service"
 	authvalidator "github.com/wearwhere/wearwhere_be/internal/shared/validator"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/goship"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/location"
 )
 
 type stubRepo struct {
@@ -37,6 +40,10 @@ func (s *stubRepo) Update(_ context.Context, id, _ uuid.UUID, _ *domain.UpdateAd
 }
 func (s *stubRepo) SoftDelete(_ context.Context, _, _ uuid.UUID) error { return nil }
 
+func newTestLocSvc() *location.Service {
+	return location.NewService(goship.NewMockClient(), 24*time.Hour)
+}
+
 func setupRouter(t *testing.T) (*gin.Engine, uuid.UUID) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -44,7 +51,7 @@ func setupRouter(t *testing.T) (*gin.Engine, uuid.UUID) {
 	// DTO `binding:"...,e164"` tags actually run when c.ShouldBindJSON is called.
 	authvalidator.RegisterWithGin()
 	r := gin.New()
-	h := handler.New(service.New(&stubRepo{}))
+	h := handler.New(service.New(&stubRepo{}, newTestLocSvc()))
 	uid := uuid.New()
 	rg := r.Group("/me", func(c *gin.Context) {
 		authmw.SetUserIDForTest(c, uid)
@@ -53,6 +60,8 @@ func setupRouter(t *testing.T) (*gin.Engine, uuid.UUID) {
 	handler.Mount(rg, h)
 	return r, uid
 }
+
+func sp(s string) *string { return &s }
 
 func TestCreate_201AndDefault(t *testing.T) {
 	r, _ := setupRouter(t)
@@ -64,6 +73,9 @@ func TestCreate_201AndDefault(t *testing.T) {
 		Ward:           "P 1",
 		District:       "Q 1",
 		City:           "TP HCM",
+		CityCode:       sp("100000"),
+		DistrictCode:   sp("100000100"),
+		WardCode:       sp("10000010001"),
 	})
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPost, "/me/addresses", bytes.NewReader(body))

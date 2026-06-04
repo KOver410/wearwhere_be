@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/wearwhere/wearwhere_be/internal/brand/domain"
 	"github.com/wearwhere/wearwhere_be/internal/brand/repo"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/goship"
+	"github.com/wearwhere/wearwhere_be/internal/shipping/location"
 )
 
 // fakeBrandRepo — minimal in-memory impl for unit tests.
@@ -79,8 +82,12 @@ func (f *fakeAddrRepo) SoftDelete(ctx context.Context, id, brandID uuid.UUID) er
 	return repo.ErrNotFound
 }
 
+func newTestLocSvc() *location.Service {
+	return location.NewService(goship.NewMockClient(), 24*time.Hour)
+}
+
 func TestService_GetByID_NotFound_Translates(t *testing.T) {
-	svc := New(&fakeBrandRepo{byID: map[uuid.UUID]*domain.Brand{}, byOwner: map[uuid.UUID]*domain.Brand{}}, &fakeAddrRepo{})
+	svc := New(&fakeBrandRepo{byID: map[uuid.UUID]*domain.Brand{}, byOwner: map[uuid.UUID]*domain.Brand{}}, &fakeAddrRepo{}, newTestLocSvc())
 	_, err := svc.GetByID(context.Background(), uuid.New())
 	require.ErrorIs(t, err, domain.ErrBrandNotFound)
 }
@@ -94,6 +101,7 @@ func TestService_UpdateOwn_SlugConflict_Translates(t *testing.T) {
 			updateErr: repo.ErrSlugTaken,
 		},
 		&fakeAddrRepo{},
+		newTestLocSvc(),
 	)
 	newSlug := "taken"
 	err := svc.UpdateOwn(context.Background(), id, &domain.UpdateBrandRequest{Slug: &newSlug})
@@ -101,7 +109,7 @@ func TestService_UpdateOwn_SlugConflict_Translates(t *testing.T) {
 }
 
 func TestService_DeleteAddress_NotFound_Translates(t *testing.T) {
-	svc := New(&fakeBrandRepo{}, &fakeAddrRepo{})
+	svc := New(&fakeBrandRepo{}, &fakeAddrRepo{}, newTestLocSvc())
 	err := svc.DeleteAddress(context.Background(), uuid.New(), uuid.New())
 	require.ErrorIs(t, err, domain.ErrAddressNotFound)
 }

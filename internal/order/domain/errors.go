@@ -20,6 +20,10 @@ var (
 	ErrCarrierUnavailable      = errors.New("selected carrier is no longer available for this route")
 	ErrCarrierNotSelected      = errors.New("no shipping carrier selected for one or more brands")
 	ErrShippingUnavailable     = errors.New("shipping service temporarily unavailable")
+	ErrSubOrderNotFound        = errors.New("sub-order not found")
+	ErrNotBrandOwner           = errors.New("sub-order does not belong to this brand")
+	ErrInvalidTransition       = errors.New("invalid fulfillment transition")
+	ErrShipmentCreateFailed    = errors.New("failed to create shipment with carrier")
 )
 
 const MinOrderValueVND int64 = 50000

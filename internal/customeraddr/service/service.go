@@ -42,9 +42,24 @@ func (s *CustomerAddressService) Create(ctx context.Context, userID uuid.UUID, r
 }
 
 func (s *CustomerAddressService) Update(ctx context.Context, id, userID uuid.UUID, req *domain.UpdateAddressRequest) (*domain.CustomerAddress, error) {
-	if err := s.validateLocation(ctx, req.CityCode, req.DistrictCode, req.WardCode); err != nil {
-		return nil, err
+	cityNil := req.CityCode == nil
+	distNil := req.DistrictCode == nil
+	wardNil := req.WardCode == nil
+	anyNil := cityNil || distNil || wardNil
+	allNil := cityNil && distNil && wardNil
+
+	if allNil {
+		// No location codes provided — skip validation, preserve existing codes.
+	} else if anyNil {
+		// Partial location update is not allowed — all three or none.
+		return nil, domain.ErrInvalidLocation
+	} else {
+		// All three provided — validate hierarchy.
+		if err := s.validateLocation(ctx, req.CityCode, req.DistrictCode, req.WardCode); err != nil {
+			return nil, err
+		}
 	}
+
 	a, err := s.repo.Update(ctx, id, userID, req)
 	if errors.Is(err, repo.ErrNotFound) {
 		return nil, domain.ErrAddressNotFound
@@ -64,7 +79,11 @@ func (s *CustomerAddressService) Delete(ctx context.Context, id, userID uuid.UUI
 
 // validateLocation checks that districtCode belongs to cityCode and wardCode
 // belongs to districtCode using the location service.
+// All three pointers must be non-nil; returns ErrInvalidLocation if any is nil.
 func (s *CustomerAddressService) validateLocation(ctx context.Context, cityCode, districtCode, wardCode *string) error {
+	if cityCode == nil || districtCode == nil || wardCode == nil {
+		return domain.ErrInvalidLocation
+	}
 	districts, err := s.loc.Districts(ctx, *cityCode)
 	if err != nil {
 		return domain.ErrInvalidLocation

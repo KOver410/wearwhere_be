@@ -110,3 +110,35 @@ func TestCreateAddress_ValidCodes_Succeeds(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, a.IsDefault)
 }
+
+// TestUpdateAddress_NoCodes_SkipsValidation verifies that an Update request
+// with all three code fields nil (e.g. only updating label) succeeds without
+// triggering location validation.
+func TestUpdateAddress_NoCodes_SkipsValidation(t *testing.T) {
+	stored := &domain.CustomerAddress{
+		Label: "Old label",
+	}
+	mr := &mockRepo{findReturns: stored}
+	s := service.New(mr, newTestLocSvc())
+
+	newLabel := "New label"
+	a, err := s.Update(context.Background(), uuid.New(), uuid.New(), &domain.UpdateAddressRequest{
+		Label: &newLabel,
+		// CityCode, DistrictCode, WardCode all nil — no location update
+	})
+	require.NoError(t, err)
+	require.NotNil(t, a)
+}
+
+// TestUpdateAddress_PartialCodes_Rejected verifies that providing only some
+// of the three location code fields is rejected as an invalid partial update.
+func TestUpdateAddress_PartialCodes_Rejected(t *testing.T) {
+	s := service.New(&mockRepo{}, newTestLocSvc())
+
+	// Only CityCode set — missing DistrictCode and WardCode.
+	_, err := s.Update(context.Background(), uuid.New(), uuid.New(), &domain.UpdateAddressRequest{
+		CityCode: sp("100000"),
+		// DistrictCode and WardCode intentionally nil
+	})
+	require.ErrorIs(t, err, domain.ErrInvalidLocation)
+}

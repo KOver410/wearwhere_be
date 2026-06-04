@@ -39,9 +39,9 @@ type UpdateAddressRequest struct {
 	Ward         *string  `json:"ward"          binding:"omitempty,max=80"`
 	District     *string  `json:"district"      binding:"omitempty,max=80"`
 	City         *string  `json:"city"          binding:"omitempty,max=80"`
-	CityCode     *string  `json:"city_code"     binding:"required"`
-	DistrictCode *string  `json:"district_code" binding:"required"`
-	WardCode     *string  `json:"ward_code"     binding:"required"`
+	CityCode     *string  `json:"city_code"     binding:"omitempty"`
+	DistrictCode *string  `json:"district_code" binding:"omitempty"`
+	WardCode     *string  `json:"ward_code"     binding:"omitempty"`
 	Country      *string  `json:"country"       binding:"omitempty,len=2"`
 	PostalCode   *string  `json:"postal_code"   binding:"omitempty,max=20"`
 	Phone        *string  `json:"phone"         binding:"omitempty,e164"`

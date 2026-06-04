@@ -74,6 +74,7 @@ func (p *GoshipProvider) Quote(ctx context.Context, r CalcReq) ([]shippingdomain
 	opts := make([]shippingdomain.ShippingOption, 0, len(rates))
 	for _, rt := range rates {
 		opts = append(opts, shippingdomain.ShippingOption{
+			Provider: "goship",
 			Carrier: rt.Carrier, CarrierName: rt.CarrierName,
 			Service: rt.Service, AmountVND: rt.FeeVND, ETA: rt.ETA,
 		})

@@ -227,6 +227,7 @@ func (s *OrderService) PlaceOrder(
 		subtotal  int64
 		shipping  int64
 		carrier   string
+		provider  string
 	}
 	groups := map[uuid.UUID]*brandGroup{}
 	brandOrder := []uuid.UUID{}
@@ -289,6 +290,7 @@ func (s *OrderService) PlaceOrder(
 		}
 		g.shipping = matched.AmountVND
 		g.carrier = matched.Carrier
+		g.provider = matched.Provider
 		shippingAll += matched.AmountVND
 	}
 	grandTotal := subtotalAll + shippingAll
@@ -342,7 +344,7 @@ func (s *OrderService) PlaceOrder(
 			TotalVND:         g.subtotal + g.shipping,
 			Status:           domain.SubOrderStatusPending,
 			ShippingCarrier:  strPtr(g.carrier),
-			ShippingProvider: strPtr("goship"),
+			ShippingProvider: strPtr(g.provider),
 		}
 		if err := s.subOrderRepo.Create(ctx, tx, so); err != nil {
 			return nil, nil, err

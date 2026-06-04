@@ -22,6 +22,7 @@ func (p *FlatRateProvider) Quote(ctx context.Context, r CalcReq) ([]shippingdoma
 		return nil, err
 	}
 	return []shippingdomain.ShippingOption{{
+		Provider:    "flat",
 		Carrier:     "flat",
 		CarrierName: "Standard",
 		Service:     "standard",

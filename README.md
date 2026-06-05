@@ -202,6 +202,21 @@ New endpoints:
 - `POST /api/v1/me/orders/:order_no/cancel` — cancel (Sprint 3: COD anytime pre-confirm, PayOS unpaid only)
 - `POST /api/v1/payments/payos/webhook` — public PayOS callback (signature-verified)
 
+### Frontend integration (CORS + PayOS redirects)
+
+When serving the web frontend (Vite dev server on `http://localhost:5173`), set:
+
+```
+CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+PAYOS_RETURN_URL=http://localhost:5173/order/success
+PAYOS_CANCEL_URL=http://localhost:5173/cart
+```
+
+`CORS_ALLOWED_ORIGINS` must include the actual Vite origin or the browser will block
+API calls on preflight. `PAYOS_RETURN_URL` / `PAYOS_CANCEL_URL` control where the
+gateway sends the customer back after a successful or cancelled PayOS payment. These
+keys are present in `.env.example` with the local defaults above.
+
 PayOS modes (`PAYOS_MODE` env):
 - `mock` (default): no creds needed. Dev page at `GET /dev/payos/mock-checkout?orderCode=N` simulates the gateway.
 - `production`: requires `PAYOS_CLIENT_ID`, `PAYOS_API_KEY`, `PAYOS_CHECKSUM_KEY`.

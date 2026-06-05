@@ -20,6 +20,13 @@ const userColumns = `id, email, phone, password_hash, role, status,
         email_verified_at, phone_verified_at, name, avatar_url, bio,
         last_login_at, created_at, updated_at, deleted_at`
 
+// userColumnsU is userColumns qualified to the `u` alias, for queries that JOIN
+// another table which also has id/email/created_at columns (e.g. GetBySocial
+// joins social_accounts). Bare column names are ambiguous in that context.
+const userColumnsU = `u.id, u.email, u.phone, u.password_hash, u.role, u.status,
+        u.email_verified_at, u.phone_verified_at, u.name, u.avatar_url, u.bio,
+        u.last_login_at, u.created_at, u.updated_at, u.deleted_at`
+
 func scanUser(row pgx.Row) (*domain.User, error) {
 	var u domain.User
 	var role, status string
@@ -73,7 +80,7 @@ func (r *UserPG) GetByPhone(ctx context.Context, phone string) (*domain.User, er
 }
 
 func (r *UserPG) GetBySocial(ctx context.Context, provider domain.OAuthProvider, providerUserID string) (*domain.User, error) {
-	const q = `SELECT ` + userColumns + ` FROM users u
+	const q = `SELECT ` + userColumnsU + ` FROM users u
 	           JOIN social_accounts s ON s.user_id = u.id
 	           WHERE s.provider=$1 AND s.provider_user_id=$2 AND u.deleted_at IS NULL`
 	row := r.db.QueryRow(ctx, q, string(provider), providerUserID)

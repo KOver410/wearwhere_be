@@ -4,6 +4,7 @@ Tài liệu hướng dẫn nối Flutter app vào WearWhere backend (Go + gin). 
 
 - Server: `cmd/api` (Go)
 - Base URL dev: `http://10.0.2.2:8080/api/v1` (Android emulator) hoặc `http://localhost:8080/api/v1` (iOS sim / web)
+- Base URL demo (VM trên GCP): `https://34-87-41-62.sslip.io/api/v1` — HTTPS hợp lệ (Let's Encrypt), dùng test trên thiết bị thật. **Lưu ý:** hostname gắn với IP của VM; nếu VM được tạo lại (`terraform destroy`/`apply`) thì IP đổi → đổi lại URL. Production thật nên dùng domain riêng.
 - Module path Go: `github.com/wearwhere/wearwhere_be`
 - Auth: `Authorization: Bearer <access_token>`
 - Content-Type: `application/json` (trừ upload ảnh dùng `multipart/form-data`)
@@ -29,9 +30,14 @@ dependencies:
 import 'dart:io';
 
 class ApiConfig {
+  // Override khi chạy: flutter run --dart-define=API_BASE_URL=https://34-87-41-62.sslip.io/api/v1
+  // Cho phép trỏ vào VM demo mà không phải sửa hằng số production.
+  static const _override = String.fromEnvironment('API_BASE_URL');
+
   static String get baseUrl {
+    if (_override.isNotEmpty) return _override;
     if (const bool.fromEnvironment('dart.vm.product')) {
-      return 'https://api.wearwhere.vn/api/v1';  // production
+      return 'https://api.wearwhere.vn/api/v1';  // production (domain thật khi có)
     }
     // Dev: Android emulator dùng 10.0.2.2 để route ra host
     if (Platform.isAndroid) return 'http://10.0.2.2:8080/api/v1';

@@ -25,6 +25,7 @@ type Config struct {
 	Shipping    ShippingConfig
 	Goship      GoshipConfig
 	Reservation ReservationConfig
+	CORS        CORSConfig
 }
 
 type AppConfig struct {
@@ -201,6 +202,9 @@ func Load() (*Config, error) {
 		TimeoutMinutes:  getInt("RESERVATION_TIMEOUT_MINUTES", 30),
 		CleanupInterval: getDuration("RESERVATION_CLEANUP_INTERVAL", 5*time.Minute),
 	}
+	cfg.CORS = CORSConfig{
+		AllowedOrigins: csvOrSingle("CORS_ALLOWED_ORIGINS", ""),
+	}
 	return cfg, nil
 }
 
@@ -232,6 +236,10 @@ type GoshipConfig struct {
 type ReservationConfig struct {
 	TimeoutMinutes  int
 	CleanupInterval time.Duration
+}
+
+type CORSConfig struct {
+	AllowedOrigins []string
 }
 
 func (c *Config) IsProduction() bool { return c.App.Env == "production" }

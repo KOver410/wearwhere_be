@@ -298,6 +298,41 @@ func SeedCustomerAddress(t *testing.T, db DBTX, userID uuid.UUID, opts CustomerA
 	return SeededCustomerAddress{ID: id, UserID: userID, IsDefault: opts.IsDefault}
 }
 
+// SeedDeliveredOrderItem creates a minimal order → sub_order(delivered) → order_item
+// chain so the buyer (userID) counts as a verified purchaser of productID.
+// variantID must belong to productID. Presence of the row is the signal.
+func SeedDeliveredOrderItem(t *testing.T, db DBTX, userID, brandID, productID, variantID uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+	orderID := uuid.New()
+	_, err := db.Exec(ctx,
+		`INSERT INTO orders
+		   (id, user_id, order_no, subtotal_vnd, shipping_total_vnd, grand_total_vnd,
+		    payment_method, payment_status, status, shipping_address)
+		 VALUES ($1,$2,$3,100000,0,100000,'cod','paid','completed','{}')`,
+		orderID, userID, "ORD-"+orderID.String()[:8])
+	if err != nil {
+		t.Fatalf("seed order: %v", err)
+	}
+	subID := uuid.New()
+	_, err = db.Exec(ctx,
+		`INSERT INTO sub_orders
+		   (id, order_id, brand_id, subtotal_vnd, shipping_fee_vnd, total_vnd, status, delivered_at)
+		 VALUES ($1,$2,$3,100000,0,100000,'delivered',NOW())`,
+		subID, orderID, brandID)
+	if err != nil {
+		t.Fatalf("seed sub_order: %v", err)
+	}
+	_, err = db.Exec(ctx,
+		`INSERT INTO order_items
+		   (id, sub_order_id, variant_id, product_id, product_name, variant_label, qty, unit_price_vnd, line_total_vnd)
+		 VALUES ($1,$2,$3,$4,'P','V',1,100000,100000)`,
+		uuid.New(), subID, variantID, productID)
+	if err != nil {
+		t.Fatalf("seed order_item: %v", err)
+	}
+}
+
 // SeedBrandAddress inserts a primary brand_addresses row with city_code and
 // district_code set. This is required for the GoshipProvider to look up the
 // pickup address when quoting shipping.

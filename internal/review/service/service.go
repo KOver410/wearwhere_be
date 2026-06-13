@@ -27,6 +27,9 @@ func fitPtr(fit string) *string {
 }
 
 func (s *Service) Create(ctx context.Context, userID, productID uuid.UUID, req *domain.WriteReviewRequest) (*domain.Review, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
 	exists, err := s.repo.ProductExists(ctx, productID)
 	if err != nil {
 		return nil, err
@@ -81,6 +84,9 @@ func (s *Service) List(ctx context.Context, productID uuid.UUID, q *domain.ListR
 }
 
 func (s *Service) Update(ctx context.Context, userID, reviewID uuid.UUID, req *domain.WriteReviewRequest) error {
+	if err := req.Validate(); err != nil {
+		return err
+	}
 	rv, err := s.repo.GetByID(ctx, reviewID)
 	if err != nil {
 		if errors.Is(err, repo.ErrNotFound) {

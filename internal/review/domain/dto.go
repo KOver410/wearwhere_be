@@ -1,5 +1,7 @@
 package domain
 
+import "strings"
+
 // WriteReviewRequest is the body for create (POST) and update (PATCH).
 // Gin binding enforces the SRS rules: rating 1-5, body >= 20 chars,
 // fit (optional) one of small|true|large.
@@ -7,6 +9,23 @@ type WriteReviewRequest struct {
 	Rating int    `json:"rating" binding:"required,min=1,max=5"`
 	Body   string `json:"body"   binding:"required,min=20,max=5000"`
 	Fit    string `json:"fit"    binding:"omitempty,oneof=small true large"`
+}
+
+// Validate enforces the SRS rules independently of Gin binding, so non-HTTP
+// callers are guarded too. Returns a 400 AppError on failure.
+func (r *WriteReviewRequest) Validate() error {
+	if r.Rating < 1 || r.Rating > 5 {
+		return ErrInvalidReview("rating must be between 1 and 5")
+	}
+	if len([]rune(strings.TrimSpace(r.Body))) < 20 {
+		return ErrInvalidReview("body must be at least 20 characters")
+	}
+	switch r.Fit {
+	case "", FitSmall, FitTrue, FitLarge:
+	default:
+		return ErrInvalidReview("fit must be small, true, or large")
+	}
+	return nil
 }
 
 // ListReviewsQuery is the query string for GET /products/:id/reviews.

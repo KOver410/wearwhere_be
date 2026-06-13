@@ -52,12 +52,6 @@ func (h *Handler) List(c *gin.Context) {
 		httpx.Error(c, http.StatusBadRequest, "INVALID_QUERY", err.Error())
 		return
 	}
-	if q.Page == 0 {
-		q.Page = 1
-	}
-	if q.Limit == 0 {
-		q.Limit = 20
-	}
 	resp, err := h.svc.List(c.Request.Context(), pid, &q)
 	if err != nil {
 		httpx.ErrorFromApp(c, err)

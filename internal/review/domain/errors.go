@@ -25,3 +25,7 @@ func ErrReviewNotFound() *httpx.AppError {
 func ErrForbidden() *httpx.AppError {
 	return httpx.NewAppError(http.StatusForbidden, "FORBIDDEN", "You can only modify your own review")
 }
+
+func ErrInvalidReview(msg string) *httpx.AppError {
+	return httpx.NewAppError(http.StatusBadRequest, "INVALID_REVIEW", msg)
+}

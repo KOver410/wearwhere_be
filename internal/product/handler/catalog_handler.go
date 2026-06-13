@@ -116,10 +116,12 @@ func (h *CatalogHandler) respondDetail(c *gin.Context, fetch func() (*domain.Pro
 		Category: &domain.CategoryRef{
 			ID: cat.ID.String(), Slug: cat.Slug, Name: cat.Name,
 		},
-		StyleTags: tresp,
-		Variants:  vresp,
-		Images:    iresp,
-		CreatedAt: domain.FormatTime(p.CreatedAt),
+		StyleTags:   tresp,
+		Variants:    vresp,
+		Images:      iresp,
+		AvgRating:   p.AvgRating,
+		ReviewCount: p.ReviewCount,
+		CreatedAt:   domain.FormatTime(p.CreatedAt),
 	}
 	httpx.OK(c, gin.H{"product": out})
 }

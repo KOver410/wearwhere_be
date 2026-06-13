@@ -25,6 +25,8 @@ type Product struct {
 	Currency    string
 	SoldCount   int
 	ViewCount   int
+	AvgRating   float64
+	ReviewCount int
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	DeletedAt   *time.Time

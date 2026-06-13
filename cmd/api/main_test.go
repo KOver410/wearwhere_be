@@ -54,6 +54,9 @@ import (
 	"github.com/wearwhere/wearwhere_be/internal/shipping/goship"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/location"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
+	reviewhandler "github.com/wearwhere/wearwhere_be/internal/review/handler"
+	reviewrepo "github.com/wearwhere/wearwhere_be/internal/review/repo"
+	reviewservice "github.com/wearwhere/wearwhere_be/internal/review/service"
 	wishlisthandler "github.com/wearwhere/wearwhere_be/internal/wishlist/handler"
 	wishlistrepo "github.com/wearwhere/wearwhere_be/internal/wishlist/repo"
 	wishlistservice "github.com/wearwhere/wearwhere_be/internal/wishlist/service"
@@ -118,6 +121,11 @@ func buildTestServer(t *testing.T, pool *pgxpool.Pool, storageBackend storage.St
 	storeSvc := storeservice.New(storerepo.NewStorePG(pool), goong.NewMockClient())
 	storehandler.MountStoresPublic(v1, storehandler.NewHandler(storeSvc))
 
+	reviewRepo := reviewrepo.NewReviewPG(pool)
+	reviewSvc := reviewservice.NewWithRepo(reviewRepo)
+	reviewHandler := reviewhandler.New(reviewSvc)
+	reviewhandler.MountReviewsPublic(v1, reviewHandler)
+
 	// ── Sprint 2: customer-side modules wired under /me ──
 	customeraddrRepo := customeraddrrepo.NewAddressPG(pool)
 	wishlistRepo := wishlistrepo.NewWishlistPG(pool)
@@ -134,6 +142,9 @@ func buildTestServer(t *testing.T, pool *pgxpool.Pool, storageBackend storage.St
 	customeraddrhandler.Mount(customerGroup, customeraddrhandler.New(customerAddrSvc))
 	wishlisthandler.Mount(customerGroup, wishlisthandler.New(wishlistSvc))
 	carthandler.Mount(customerGroup, carthandler.New(cartSvc))
+
+	reviewsAuthed := v1.Group("", authmw.RequireAuth(jwtIssuer))
+	reviewhandler.MountReviewsAuthed(reviewsAuthed, reviewHandler)
 
 	// ── Sprint 3: orders, payment, PayOS ──
 	orderRepo := orderrepo.NewOrderPG(pool)

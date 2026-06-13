@@ -85,6 +85,8 @@ type ProductDetail struct {
 	StyleTags   []StyleTagRef `json:"style_tags"`
 	Variants    []VariantResp `json:"variants"`
 	Images      []ImageResp   `json:"images"`
+	AvgRating   float64       `json:"avg_rating"`
+	ReviewCount int           `json:"review_count"`
 	CreatedAt   string        `json:"created_at"`
 }
 

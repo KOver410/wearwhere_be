@@ -54,6 +54,9 @@ import (
 	"github.com/wearwhere/wearwhere_be/internal/shipping/goship"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/location"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
+	ootdhandler "github.com/wearwhere/wearwhere_be/internal/ootd/handler"
+	ootdrepo "github.com/wearwhere/wearwhere_be/internal/ootd/repo"
+	ootdservice "github.com/wearwhere/wearwhere_be/internal/ootd/service"
 	reviewhandler "github.com/wearwhere/wearwhere_be/internal/review/handler"
 	reviewrepo "github.com/wearwhere/wearwhere_be/internal/review/repo"
 	reviewservice "github.com/wearwhere/wearwhere_be/internal/review/service"
@@ -125,6 +128,9 @@ func buildTestServer(t *testing.T, pool *pgxpool.Pool, storageBackend storage.St
 	reviewSvc := reviewservice.NewWithRepo(reviewRepo)
 	reviewHandler := reviewhandler.New(reviewSvc)
 	reviewhandler.MountReviewsPublic(v1, reviewHandler)
+	ootdSvc := ootdservice.New(ootdrepo.NewOOTDPg(pool), storageBackend, map[string]string{"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}, 5*1024*1024)
+	ootdHandler := ootdhandler.New(ootdSvc)
+	ootdhandler.MountOOTDPublic(v1, ootdHandler)
 
 	// ── Sprint 2: customer-side modules wired under /me ──
 	customeraddrRepo := customeraddrrepo.NewAddressPG(pool)
@@ -145,6 +151,7 @@ func buildTestServer(t *testing.T, pool *pgxpool.Pool, storageBackend storage.St
 
 	reviewsAuthed := v1.Group("", authmw.RequireAuth(jwtIssuer))
 	reviewhandler.MountReviewsAuthed(reviewsAuthed, reviewHandler)
+	ootdhandler.MountOOTDAuthed(reviewsAuthed, ootdHandler)
 
 	// ── Sprint 3: orders, payment, PayOS ──
 	orderRepo := orderrepo.NewOrderPG(pool)

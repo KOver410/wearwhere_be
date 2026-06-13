@@ -51,6 +51,9 @@ import (
 	"github.com/wearwhere/wearwhere_be/internal/shipping/location"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/weight"
+	ootdhandler "github.com/wearwhere/wearwhere_be/internal/ootd/handler"
+	ootdrepo "github.com/wearwhere/wearwhere_be/internal/ootd/repo"
+	ootdservice "github.com/wearwhere/wearwhere_be/internal/ootd/service"
 	reviewhandler "github.com/wearwhere/wearwhere_be/internal/review/handler"
 	reviewrepo "github.com/wearwhere/wearwhere_be/internal/review/repo"
 	reviewservice "github.com/wearwhere/wearwhere_be/internal/review/service"
@@ -165,6 +168,18 @@ func main() {
 	)
 	catalogRepo := productrepo.NewCatalogPG(pgPool)
 	catalogSvc := productservice.NewCatalog(catalogRepo, productRepo)
+	ootdAllowedMIMEs := func() map[string]string {
+		extMap := map[string]string{"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+		m := make(map[string]string, len(cfg.Storage.AllowedMIMEs))
+		for _, mime := range cfg.Storage.AllowedMIMEs {
+			if ext, ok := extMap[mime]; ok {
+				m[mime] = ext
+			}
+		}
+		return m
+	}()
+	ootdSvc := ootdservice.New(ootdrepo.NewOOTDPg(pgPool), storageBackend, ootdAllowedMIMEs, cfg.Storage.MaxFileSize)
+	ootdHandler := ootdhandler.New(ootdSvc)
 	customerAddrSvc := customeraddrservice.New(customerAddrRepo, locSvc)
 	wishlistSvc := wishlistservice.New(wishlistRepo, productRepo)
 	cartSvc := cartservice.New(cartRepo, variantRepo)
@@ -309,6 +324,7 @@ func main() {
 	brandhandler.MountBrandsPublic(v1, brandsPublicHandler)
 	storehandler.MountStoresPublic(v1, storehandler.NewHandler(storeSvc))
 	reviewhandler.MountReviewsPublic(v1, reviewHandler)
+	ootdhandler.MountOOTDPublic(v1, ootdHandler)
 
 	customerGroup := v1.Group("/me",
 		middleware.RequireAuth(jwtIssuer),
@@ -321,6 +337,7 @@ func main() {
 
 	reviewsAuthed := v1.Group("", middleware.RequireAuth(jwtIssuer))
 	reviewhandler.MountReviewsAuthed(reviewsAuthed, reviewHandler)
+	ootdhandler.MountOOTDAuthed(reviewsAuthed, ootdHandler)
 
 	location.RegisterRoutes(v1, location.NewHandler(locSvc))
 	paymenthandler.MountPublic(v1, paymentH)

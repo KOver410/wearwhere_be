@@ -37,3 +37,7 @@ func ErrInvalidMIME() *httpx.AppError {
 func ErrStorageError() *httpx.AppError {
 	return httpx.NewAppError(http.StatusInternalServerError, "STORAGE_ERROR", "Failed to store photo")
 }
+
+func ErrCaptionTooLong() *httpx.AppError {
+	return httpx.NewAppError(http.StatusBadRequest, "CAPTION_TOO_LONG", "Caption must be at most 2000 characters")
+}

@@ -142,3 +142,16 @@ func TestDeleteComment_RejectsNonOwner(t *testing.T) {
 		t.Fatal("expected FORBIDDEN for non-owner comment delete")
 	}
 }
+
+func TestCreatePost_CaptionTooLong_Error(t *testing.T) {
+	svc := newSvc(&fakeRepo{}, &memStorage{})
+	long := make([]byte, 2001)
+	for i := range long {
+		long[i] = 'a'
+	}
+	files := []*multipart.FileHeader{fileHeader(t, "p.jpg", jpegHeader)}
+	_, err := svc.CreatePost(context.Background(), uuid.New(), string(long), files, nil)
+	if err == nil {
+		t.Fatal("expected CAPTION_TOO_LONG error")
+	}
+}

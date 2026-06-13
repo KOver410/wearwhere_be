@@ -30,6 +30,9 @@ func New(r repo.Repo, st storage.Storage, allowedMIMEs map[string]string, maxFil
 
 // CreatePost uploads photos then creates the post + tags. caption "" → nil.
 func (s *Service) CreatePost(ctx context.Context, userID uuid.UUID, caption string, files []*multipart.FileHeader, productIDs []uuid.UUID) (*domain.Post, error) {
+	if len([]rune(caption)) > 2000 {
+		return nil, domain.ErrCaptionTooLong()
+	}
 	if len(files) == 0 {
 		return nil, domain.ErrNoPhotos()
 	}
@@ -157,6 +160,9 @@ func (s *Service) GetPost(ctx context.Context, viewerID, postID uuid.UUID) (*dom
 }
 
 func (s *Service) UpdateCaption(ctx context.Context, userID, postID uuid.UUID, caption string) error {
+	if len([]rune(caption)) > 2000 {
+		return domain.ErrCaptionTooLong()
+	}
 	v, err := s.repo.GetPost(ctx, postID)
 	if err != nil {
 		return domain.ErrPostNotFound()

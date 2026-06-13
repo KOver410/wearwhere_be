@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/wearwhere/wearwhere_be/internal/product/domain"
 )
@@ -189,17 +190,39 @@ SELECT COUNT(*)
 const productColsP = `p.id, p.brand_id, p.category_id, p.slug, p.name, p.description, p.status,
                       p.currency, p.sold_count, p.view_count, p.created_at, p.updated_at, p.deleted_at`
 
+// productColsPDetail extends productColsP with the denormalized rating columns.
+const productColsPDetail = productColsP + `, p.avg_rating, p.review_count`
+
+// scanProductDetail scans a product row that includes avg_rating and review_count.
+func scanProductDetail(row pgx.Row) (*domain.Product, error) {
+	var p domain.Product
+	var status string
+	err := row.Scan(
+		&p.ID, &p.BrandID, &p.CategoryID, &p.Slug, &p.Name, &p.Description, &status,
+		&p.Currency, &p.SoldCount, &p.ViewCount, &p.CreatedAt, &p.UpdatedAt, &p.DeletedAt,
+		&p.AvgRating, &p.ReviewCount,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	p.Status = domain.ProductStatus(status)
+	return &p, nil
+}
+
 // Detail returns product + category + variants + images + style tags by brand and product slug.
 func (r *CatalogPG) Detail(ctx context.Context, brandSlug, productSlug string) (
 	*domain.Product, *domain.Category, []*domain.Variant, []*domain.Image, []*domain.StyleTag, error,
 ) {
 	prodRow := r.db.QueryRow(ctx,
-		`SELECT `+productColsP+` FROM products p
+		`SELECT `+productColsPDetail+` FROM products p
          JOIN brands b ON b.id = p.brand_id
          WHERE b.slug=$1 AND p.slug=$2
            AND p.deleted_at IS NULL AND b.deleted_at IS NULL`,
 		brandSlug, productSlug)
-	p, err := scanProduct(prodRow)
+	p, err := scanProductDetail(prodRow)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return nil, nil, nil, nil, nil, err

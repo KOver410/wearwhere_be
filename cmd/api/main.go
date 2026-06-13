@@ -54,6 +54,11 @@ import (
 	wishlisthandler "github.com/wearwhere/wearwhere_be/internal/wishlist/handler"
 	wishlistrepo "github.com/wearwhere/wearwhere_be/internal/wishlist/repo"
 	wishlistservice "github.com/wearwhere/wearwhere_be/internal/wishlist/service"
+
+	"github.com/wearwhere/wearwhere_be/internal/maps/goong"
+	storehandler "github.com/wearwhere/wearwhere_be/internal/store/handler"
+	storerepo "github.com/wearwhere/wearwhere_be/internal/store/repo"
+	storeservice "github.com/wearwhere/wearwhere_be/internal/store/service"
 )
 
 func main() {
@@ -129,6 +134,16 @@ func main() {
 	}
 	locSvc := location.NewService(goshipClient, 24*time.Hour)
 
+	// ── maps (Goong) ──
+	goongClient, err := goong.NewFromConfig(goong.Config{
+		Mode:    cfg.Goong.Mode,
+		APIKey:  cfg.Goong.APIKey,
+		BaseURL: cfg.Goong.BaseURL,
+	})
+	if err != nil {
+		log.Fatalf("goong client: %v", err)
+	}
+
 	// ── services ──
 	tokenSvc := service.NewTokenService(jwtIssuer, sessionRepo, cfg.JWT.RefreshTTL)
 	otpSvc := service.NewOTPService(otpStore, mailerSvc, smsSvc, cfg.Limit)
@@ -147,6 +162,7 @@ func main() {
 	customerAddrSvc := customeraddrservice.New(customerAddrRepo, locSvc)
 	wishlistSvc := wishlistservice.New(wishlistRepo, productRepo)
 	cartSvc := cartservice.New(cartRepo, variantRepo)
+	storeSvc := storeservice.New(storerepo.NewStorePG(pgPool), goongClient)
 
 	// ── Sprint 3 repos ──
 	orderRepoSvc := orderrepo.NewOrderPG(pgPool)
@@ -285,6 +301,7 @@ func main() {
 
 	producthandler.MountCatalog(v1, catalogHandler)
 	brandhandler.MountBrandsPublic(v1, brandsPublicHandler)
+	storehandler.MountStoresPublic(v1, storehandler.NewHandler(storeSvc))
 
 	customerGroup := v1.Group("/me",
 		middleware.RequireAuth(jwtIssuer),

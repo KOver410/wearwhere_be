@@ -57,6 +57,11 @@ import (
 	wishlisthandler "github.com/wearwhere/wearwhere_be/internal/wishlist/handler"
 	wishlistrepo "github.com/wearwhere/wearwhere_be/internal/wishlist/repo"
 	wishlistservice "github.com/wearwhere/wearwhere_be/internal/wishlist/service"
+
+	"github.com/wearwhere/wearwhere_be/internal/maps/goong"
+	storehandler "github.com/wearwhere/wearwhere_be/internal/store/handler"
+	storerepo "github.com/wearwhere/wearwhere_be/internal/store/repo"
+	storeservice "github.com/wearwhere/wearwhere_be/internal/store/service"
 )
 
 func buildTestServer(t *testing.T, pool *pgxpool.Pool, storageBackend storage.Storage) (*httptest.Server, *jwtsvc.Issuer) {
@@ -110,6 +115,8 @@ func buildTestServer(t *testing.T, pool *pgxpool.Pool, storageBackend storage.St
 	producthandler.MountBrandProducts(brandGroup, producthandler.NewBrandProductHandler(productSvc))
 	producthandler.MountCatalog(v1, producthandler.NewCatalogHandler(catalogSvc, categoryRepo, styleTagRepo, brandRepo))
 	brandhandler.MountBrandsPublic(v1, brandhandler.NewBrandsPublicHandler(brandSvc))
+	storeSvc := storeservice.New(storerepo.NewStorePG(pool), goong.NewMockClient())
+	storehandler.MountStoresPublic(v1, storehandler.NewHandler(storeSvc))
 
 	// ── Sprint 2: customer-side modules wired under /me ──
 	customeraddrRepo := customeraddrrepo.NewAddressPG(pool)

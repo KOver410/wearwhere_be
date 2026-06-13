@@ -1,0 +1,3 @@
+ALTER TABLE products
+  ADD COLUMN avg_rating   NUMERIC(2,1) NOT NULL DEFAULT 0,
+  ADD COLUMN review_count INT          NOT NULL DEFAULT 0;

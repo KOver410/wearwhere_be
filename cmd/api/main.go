@@ -51,6 +51,9 @@ import (
 	"github.com/wearwhere/wearwhere_be/internal/shipping/location"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/weight"
+	reviewhandler "github.com/wearwhere/wearwhere_be/internal/review/handler"
+	reviewrepo "github.com/wearwhere/wearwhere_be/internal/review/repo"
+	reviewservice "github.com/wearwhere/wearwhere_be/internal/review/service"
 	wishlisthandler "github.com/wearwhere/wearwhere_be/internal/wishlist/handler"
 	wishlistrepo "github.com/wearwhere/wearwhere_be/internal/wishlist/repo"
 	wishlistservice "github.com/wearwhere/wearwhere_be/internal/wishlist/service"
@@ -107,6 +110,9 @@ func main() {
 	customerAddrRepo := customeraddrrepo.NewAddressPG(pgPool)
 	wishlistRepo := wishlistrepo.NewWishlistPG(pgPool)
 	cartRepo := cartrepo.NewCartPG(pgPool)
+	reviewRepo := reviewrepo.NewReviewPG(pgPool)
+	reviewSvc := reviewservice.NewWithRepo(reviewRepo)
+	reviewHandler := reviewhandler.New(reviewSvc)
 
 	// ── storage ──
 	storageBackend, err := storage.New(storage.Config{
@@ -302,6 +308,7 @@ func main() {
 	producthandler.MountCatalog(v1, catalogHandler)
 	brandhandler.MountBrandsPublic(v1, brandsPublicHandler)
 	storehandler.MountStoresPublic(v1, storehandler.NewHandler(storeSvc))
+	reviewhandler.MountReviewsPublic(v1, reviewHandler)
 
 	customerGroup := v1.Group("/me",
 		middleware.RequireAuth(jwtIssuer),
@@ -311,6 +318,9 @@ func main() {
 	wishlisthandler.Mount(customerGroup, wishlistHandler)
 	carthandler.Mount(customerGroup, cartHandler)
 	orderhandler.Mount(customerGroup, orderH)
+
+	reviewsAuthed := v1.Group("", middleware.RequireAuth(jwtIssuer))
+	reviewhandler.MountReviewsAuthed(reviewsAuthed, reviewHandler)
 
 	location.RegisterRoutes(v1, location.NewHandler(locSvc))
 	paymenthandler.MountPublic(v1, paymentH)

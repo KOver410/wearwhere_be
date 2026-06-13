@@ -75,7 +75,17 @@ func ComputeOpenStatus(hours []StoreHours, now time.Time) *OpenStatus {
 		}
 		open := parseHM(h.OpenTime)
 		closeM := parseHM(h.CloseTime)
-		if open <= cur && cur < closeM {
+		// A window where closeM <= open wraps past midnight (e.g. 18:00–02:00).
+		// We evaluate the wrap against this same weekday row (the post-midnight
+		// portion is attributed here, not to the next calendar weekday) — a
+		// deliberate simplification that keeps open/closed correct for late-night stores.
+		var openNow bool
+		if closeM <= open {
+			openNow = cur >= open || cur < closeM
+		} else {
+			openNow = open <= cur && cur < closeM
+		}
+		if openNow {
 			return &OpenStatus{Open: true}
 		}
 	}

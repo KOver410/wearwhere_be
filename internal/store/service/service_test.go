@@ -13,11 +13,15 @@ import (
 )
 
 type fakeRepo struct {
-	nearby []*domain.Store
-	detail *domain.Store
+	nearby     []*domain.Store
+	detail     *domain.Store
+	nearbyFunc func(radiusKm float64) []*domain.Store // optional radius-aware override
 }
 
-func (f *fakeRepo) Nearby(_ context.Context, _, _, _ float64, _ int) ([]*domain.Store, error) {
+func (f *fakeRepo) Nearby(_ context.Context, _, _, radiusKm float64, _ int) ([]*domain.Store, error) {
+	if f.nearbyFunc != nil {
+		return f.nearbyFunc(radiusKm), nil
+	}
 	return f.nearby, nil
 }
 func (f *fakeRepo) SearchByArea(_ context.Context, _ repo.AreaFilter) ([]*domain.Store, error) {
@@ -64,5 +68,28 @@ func TestNearby_DegradesWhenGoongFails(t *testing.T) {
 	}
 	if !got[0].DistanceApprox || got[0].DistanceM == nil {
 		t.Errorf("expected haversine fallback with DistanceApprox=true, got %+v", got[0])
+	}
+}
+
+func TestNearby_WidensRadiusWhenEmpty(t *testing.T) {
+	store := &domain.Store{AddressID: uuid.New(), Latitude: 10.85, Longitude: 106.75}
+	calls := []float64{}
+	repo := &fakeRepo{nearbyFunc: func(radiusKm float64) []*domain.Store {
+		calls = append(calls, radiusKm)
+		if radiusKm >= 10 {
+			return []*domain.Store{store}
+		}
+		return nil // empty at 5km
+	}}
+	svc := New(repo, goong.NewMockClient())
+	got, err := svc.Nearby(context.Background(), 10.7769, 106.7009, 0) // radius 0 → default 5
+	if err != nil {
+		t.Fatalf("Nearby: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 store after widening, got %d", len(got))
+	}
+	if len(calls) != 2 || calls[0] != 5 || calls[1] != 10 {
+		t.Errorf("expected calls at 5km then 10km, got %v", calls)
 	}
 }

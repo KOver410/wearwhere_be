@@ -24,6 +24,7 @@ type Config struct {
 	Payos       PayosConfig
 	Shipping    ShippingConfig
 	Goship      GoshipConfig
+	Goong       GoongConfig
 	Reservation ReservationConfig
 	CORS        CORSConfig
 }
@@ -198,6 +199,11 @@ func Load() (*Config, error) {
 		DefaultWidthCM:     getInt("GOSHIP_DEFAULT_WIDTH_CM", 15),
 		DefaultHeightCM:    getInt("GOSHIP_DEFAULT_HEIGHT_CM", 10),
 	}
+	cfg.Goong = GoongConfig{
+		Mode:    getEnv("GOONG_MODE", "mock"),
+		APIKey:  getEnv("GOONG_API_KEY", ""),
+		BaseURL: getEnv("GOONG_BASE_URL", "https://rsapi.goong.io"),
+	}
 	cfg.Reservation = ReservationConfig{
 		TimeoutMinutes:  getInt("RESERVATION_TIMEOUT_MINUTES", 30),
 		CleanupInterval: getDuration("RESERVATION_CLEANUP_INTERVAL", 5*time.Minute),
@@ -231,6 +237,12 @@ type GoshipConfig struct {
 	DefaultLengthCM    int
 	DefaultWidthCM     int
 	DefaultHeightCM    int
+}
+
+type GoongConfig struct {
+	Mode    string // mock | production
+	APIKey  string
+	BaseURL string
 }
 
 type ReservationConfig struct {

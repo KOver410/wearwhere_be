@@ -1,0 +1,2 @@
+ALTER TABLE users  ADD COLUMN follower_count INT NOT NULL DEFAULT 0;
+ALTER TABLE brands ADD COLUMN follower_count INT NOT NULL DEFAULT 0;

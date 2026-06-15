@@ -56,6 +56,9 @@ func (f *fakeRepo) ListComments(context.Context, uuid.UUID, int, int) ([]*domain
 }
 func (f *fakeRepo) CommentOwner(_ context.Context, _ uuid.UUID) (uuid.UUID, error) { return f.owner, nil }
 func (f *fakeRepo) SoftDeleteComment(context.Context, uuid.UUID) error             { return nil }
+func (f *fakeRepo) FollowedFeed(context.Context, uuid.UUID, int, int) ([]*domain.PostView, int, error) {
+	return nil, 0, nil
+}
 
 // memStorage is an in-memory storage.Storage for tests.
 type memStorage struct{ puts int }

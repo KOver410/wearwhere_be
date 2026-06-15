@@ -52,15 +52,16 @@ type UpdateAddressRequest struct {
 }
 
 type BrandResponse struct {
-	ID         string  `json:"id"`
-	Slug       string  `json:"slug"`
-	Name       string  `json:"name"`
-	Story      *string `json:"story,omitempty"`
-	LogoURL    *string `json:"logo_url,omitempty"`
-	BannerURL  *string `json:"banner_url,omitempty"`
-	WebsiteURL *string `json:"website_url,omitempty"`
-	Status     string  `json:"status"`
-	CreatedAt  string  `json:"created_at"`
+	ID            string  `json:"id"`
+	Slug          string  `json:"slug"`
+	Name          string  `json:"name"`
+	Story         *string `json:"story,omitempty"`
+	LogoURL       *string `json:"logo_url,omitempty"`
+	BannerURL     *string `json:"banner_url,omitempty"`
+	WebsiteURL    *string `json:"website_url,omitempty"`
+	Status        string  `json:"status"`
+	CreatedAt     string  `json:"created_at"`
+	FollowerCount int     `json:"follower_count"`
 }
 
 type AddressResponse struct {
@@ -81,15 +82,16 @@ type AddressResponse struct {
 
 func ToBrandResponse(b *Brand) BrandResponse {
 	return BrandResponse{
-		ID:         b.ID.String(),
-		Slug:       b.Slug,
-		Name:       b.Name,
-		Story:      b.Story,
-		LogoURL:    b.LogoURL,
-		BannerURL:  b.BannerURL,
-		WebsiteURL: b.WebsiteURL,
-		Status:     string(b.Status),
-		CreatedAt:  b.CreatedAt.UTC().Format(time.RFC3339),
+		ID:            b.ID.String(),
+		Slug:          b.Slug,
+		Name:          b.Name,
+		Story:         b.Story,
+		LogoURL:       b.LogoURL,
+		BannerURL:     b.BannerURL,
+		WebsiteURL:    b.WebsiteURL,
+		Status:        string(b.Status),
+		CreatedAt:     b.CreatedAt.UTC().Format(time.RFC3339),
+		FollowerCount: b.FollowerCount,
 	}
 }
 

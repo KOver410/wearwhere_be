@@ -24,7 +24,7 @@ type BrandPG struct{ db DBTX }
 func NewBrandPG(db DBTX) *BrandPG { return &BrandPG{db: db} }
 
 const brandCols = `id, slug, name, owner_user_id, story, logo_url, banner_url,
-                   website_url, status, shipping_flat_fee_vnd, verified_at, created_at, updated_at, deleted_at`
+                   website_url, status, shipping_flat_fee_vnd, verified_at, created_at, updated_at, deleted_at, follower_count`
 
 func scanBrand(row pgx.Row) (*domain.Brand, error) {
 	var b domain.Brand
@@ -32,7 +32,7 @@ func scanBrand(row pgx.Row) (*domain.Brand, error) {
 	err := row.Scan(
 		&b.ID, &b.Slug, &b.Name, &b.OwnerUserID, &b.Story, &b.LogoURL,
 		&b.BannerURL, &b.WebsiteURL, &status, &b.ShippingFlatFeeVND, &b.VerifiedAt,
-		&b.CreatedAt, &b.UpdatedAt, &b.DeletedAt,
+		&b.CreatedAt, &b.UpdatedAt, &b.DeletedAt, &b.FollowerCount,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

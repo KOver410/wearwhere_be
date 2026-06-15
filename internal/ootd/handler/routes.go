@@ -22,4 +22,5 @@ func MountOOTDAuthed(rg *gin.RouterGroup, h *Handler) {
 	rg.DELETE("/ootd/:id/like", h.Unlike)
 	rg.POST("/ootd/:id/comments", h.AddComment)
 	rg.DELETE("/ootd-comments/:id", h.DeleteComment)
+	rg.GET("/ootd-following", h.Following)
 }

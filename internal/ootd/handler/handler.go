@@ -60,6 +60,16 @@ func (h *Handler) Create(c *gin.Context) {
 	httpx.Created(c, gin.H{"id": post.ID.String()})
 }
 
+func (h *Handler) Following(c *gin.Context) {
+	page, limit := parsePage(c)
+	views, total, err := h.svc.Following(c.Request.Context(), h.userID(c), page, limit)
+	if err != nil {
+		httpx.ErrorFromApp(c, err)
+		return
+	}
+	h.respondList(c, views, total, page, limit)
+}
+
 func (h *Handler) Feed(c *gin.Context) {
 	page, limit := parsePage(c)
 	views, total, err := h.svc.Feed(c.Request.Context(), h.userID(c), page, limit)

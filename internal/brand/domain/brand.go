@@ -25,6 +25,7 @@ type Brand struct {
 	WebsiteURL         *string
 	Status             BrandStatus
 	ShippingFlatFeeVND int64 `json:"shipping_flat_fee_vnd"`
+	FollowerCount      int
 	VerifiedAt         *time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time

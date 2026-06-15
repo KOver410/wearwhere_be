@@ -138,7 +138,7 @@ func (s *Service) Following(ctx context.Context, viewerID uuid.UUID, page, limit
 }
 
 func (s *Service) Feed(ctx context.Context, viewerID uuid.UUID, page, limit int) ([]*domain.PostView, int, error) {
-	views, total, err := s.repo.FeedList(ctx, limit, (page-1)*limit)
+	views, total, err := s.repo.FeedList(ctx, viewerID, limit, (page-1)*limit)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -149,7 +149,7 @@ func (s *Service) Feed(ctx context.Context, viewerID uuid.UUID, page, limit int)
 }
 
 func (s *Service) ByUser(ctx context.Context, viewerID, userID uuid.UUID, page, limit int) ([]*domain.PostView, int, error) {
-	views, total, err := s.repo.ListByUser(ctx, userID, limit, (page-1)*limit)
+	views, total, err := s.repo.ListByUser(ctx, viewerID, userID, limit, (page-1)*limit)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -163,6 +163,15 @@ func (s *Service) GetPost(ctx context.Context, viewerID, postID uuid.UUID) (*dom
 	v, err := s.repo.GetPost(ctx, postID)
 	if err != nil {
 		return nil, domain.ErrPostNotFound()
+	}
+	if viewerID != uuid.Nil {
+		blocked, err := s.repo.IsBlocked(ctx, viewerID, v.UserID)
+		if err != nil {
+			return nil, err
+		}
+		if blocked {
+			return nil, domain.ErrPostNotFound()
+		}
 	}
 	if err := s.enrich(ctx, []*domain.PostView{v}, viewerID); err != nil {
 		return nil, err
@@ -227,8 +236,8 @@ func (s *Service) AddComment(ctx context.Context, userID, postID uuid.UUID, body
 	return c, nil
 }
 
-func (s *Service) ListComments(ctx context.Context, postID uuid.UUID, page, limit int) ([]*domain.CommentView, int, error) {
-	return s.repo.ListComments(ctx, postID, limit, (page-1)*limit)
+func (s *Service) ListComments(ctx context.Context, viewerID, postID uuid.UUID, page, limit int) ([]*domain.CommentView, int, error) {
+	return s.repo.ListComments(ctx, viewerID, postID, limit, (page-1)*limit)
 }
 
 func (s *Service) DeleteComment(ctx context.Context, userID, commentID uuid.UUID) error {

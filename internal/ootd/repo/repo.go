@@ -17,8 +17,8 @@ type Repo interface {
 	// product tags in one tx.
 	CreatePost(ctx context.Context, post *domain.Post, productIDs []uuid.UUID) error
 	GetPost(ctx context.Context, id uuid.UUID) (*domain.PostView, error)
-	FeedList(ctx context.Context, limit, offset int) ([]*domain.PostView, int, error)
-	ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*domain.PostView, int, error)
+	FeedList(ctx context.Context, viewerID uuid.UUID, limit, offset int) ([]*domain.PostView, int, error)
+	ListByUser(ctx context.Context, viewerID, userID uuid.UUID, limit, offset int) ([]*domain.PostView, int, error)
 	UpdateCaption(ctx context.Context, postID uuid.UUID, caption *string) error
 	SoftDeletePost(ctx context.Context, postID uuid.UUID) error
 	// Like inserts a like (idempotent) and increments like_count only if inserted.
@@ -30,9 +30,11 @@ type Repo interface {
 	// TagsForPosts returns product tags grouped by post id.
 	TagsForPosts(ctx context.Context, postIDs []uuid.UUID) (map[uuid.UUID][]domain.ProductTag, error)
 	AddComment(ctx context.Context, c *domain.Comment) error
-	ListComments(ctx context.Context, postID uuid.UUID, limit, offset int) ([]*domain.CommentView, int, error)
+	ListComments(ctx context.Context, viewerID, postID uuid.UUID, limit, offset int) ([]*domain.CommentView, int, error)
 	// CommentOwner returns the comment's author id (ErrNotFound if missing/deleted).
 	CommentOwner(ctx context.Context, commentID uuid.UUID) (uuid.UUID, error)
+	// IsBlocked reports whether blocker has blocked blocked.
+	IsBlocked(ctx context.Context, blocker, blocked uuid.UUID) (bool, error)
 	SoftDeleteComment(ctx context.Context, commentID uuid.UUID) error
 	// FollowedFeed returns published posts from users the viewer follows.
 	FollowedFeed(ctx context.Context, viewerID uuid.UUID, limit, offset int) ([]*domain.PostView, int, error)

@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -64,29 +65,26 @@ func (r *OOTDPg) GetPost(ctx context.Context, id uuid.UUID) (*domain.PostView, e
 		postSelect+` WHERE p.id=$1 AND p.deleted_at IS NULL AND p.status='published'`, id))
 }
 
-func (r *OOTDPg) feedQuery(ctx context.Context, where string, arg any, limit, offset int) ([]*domain.PostView, int, error) {
-	var total int
-	countSQL := `SELECT COUNT(*) FROM ootd_posts p WHERE ` + where
-	var err error
-	if arg != nil {
-		err = r.pool.QueryRow(ctx, countSQL, arg).Scan(&total)
-	} else {
-		err = r.pool.QueryRow(ctx, countSQL).Scan(&total)
+// feedQuery runs count + list for a feed view. viewerID filters out posts by
+// users the viewer has blocked (uuid.Nil → empty subquery → no filtering).
+// userID, when non-nil, restricts to a single author (the by-user feed).
+func (r *OOTDPg) feedQuery(ctx context.Context, viewerID uuid.UUID, userID *uuid.UUID, limit, offset int) ([]*domain.PostView, int, error) {
+	where := `p.deleted_at IS NULL AND p.status='published'
+	          AND p.user_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id=$1)`
+	args := []any{viewerID}
+	if userID != nil {
+		where += ` AND p.user_id=$2`
+		args = append(args, *userID)
 	}
-	if err != nil {
+
+	var total int
+	if err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ootd_posts p WHERE `+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
-	q := postSelect + ` WHERE ` + where + ` ORDER BY p.created_at DESC`
-	var args []any
-	if arg != nil {
-		args = append(args, arg)
-		q += ` LIMIT $2 OFFSET $3`
-		args = append(args, limit, offset)
-	} else {
-		q += ` LIMIT $1 OFFSET $2`
-		args = append(args, limit, offset)
-	}
+	n := len(args)
+	q := fmt.Sprintf(postSelect+` WHERE `+where+` ORDER BY p.created_at DESC LIMIT $%d OFFSET $%d`, n+1, n+2)
+	args = append(args, limit, offset)
 	rows, err := r.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, 0, err
@@ -103,12 +101,12 @@ func (r *OOTDPg) feedQuery(ctx context.Context, where string, arg any, limit, of
 	return out, total, rows.Err()
 }
 
-func (r *OOTDPg) FeedList(ctx context.Context, limit, offset int) ([]*domain.PostView, int, error) {
-	return r.feedQuery(ctx, `p.deleted_at IS NULL AND p.status='published'`, nil, limit, offset)
+func (r *OOTDPg) FeedList(ctx context.Context, viewerID uuid.UUID, limit, offset int) ([]*domain.PostView, int, error) {
+	return r.feedQuery(ctx, viewerID, nil, limit, offset)
 }
 
-func (r *OOTDPg) ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*domain.PostView, int, error) {
-	return r.feedQuery(ctx, `p.user_id=$1 AND p.deleted_at IS NULL AND p.status='published'`, userID, limit, offset)
+func (r *OOTDPg) ListByUser(ctx context.Context, viewerID, userID uuid.UUID, limit, offset int) ([]*domain.PostView, int, error) {
+	return r.feedQuery(ctx, viewerID, &userID, limit, offset)
 }
 
 func (r *OOTDPg) UpdateCaption(ctx context.Context, postID uuid.UUID, caption *string) error {
@@ -238,10 +236,12 @@ func (r *OOTDPg) AddComment(ctx context.Context, c *domain.Comment) error {
 	return tx.Commit(ctx)
 }
 
-func (r *OOTDPg) ListComments(ctx context.Context, postID uuid.UUID, limit, offset int) ([]*domain.CommentView, int, error) {
+func (r *OOTDPg) ListComments(ctx context.Context, viewerID, postID uuid.UUID, limit, offset int) ([]*domain.CommentView, int, error) {
 	var total int
 	if err := r.pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM ootd_comments WHERE post_id=$1 AND deleted_at IS NULL AND status='published'`, postID).
+		`SELECT COUNT(*) FROM ootd_comments
+		  WHERE post_id=$1 AND deleted_at IS NULL AND status='published'
+		    AND user_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id=$2)`, postID, viewerID).
 		Scan(&total); err != nil {
 		return nil, 0, err
 	}
@@ -249,8 +249,9 @@ func (r *OOTDPg) ListComments(ctx context.Context, postID uuid.UUID, limit, offs
 		`SELECT c.id, c.post_id, c.user_id, c.body, c.status, c.created_at, u.name
 		   FROM ootd_comments c JOIN users u ON u.id = c.user_id
 		  WHERE c.post_id=$1 AND c.deleted_at IS NULL AND c.status='published'
+		    AND c.user_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id=$2)
 		  ORDER BY c.created_at ASC
-		  LIMIT $2 OFFSET $3`, postID, limit, offset)
+		  LIMIT $3 OFFSET $4`, postID, viewerID, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -264,6 +265,13 @@ func (r *OOTDPg) ListComments(ctx context.Context, postID uuid.UUID, limit, offs
 		out = append(out, &v)
 	}
 	return out, total, rows.Err()
+}
+
+func (r *OOTDPg) IsBlocked(ctx context.Context, blocker, blocked uuid.UUID) (bool, error) {
+	var ok bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM user_blocks WHERE blocker_id=$1 AND blocked_id=$2)`, blocker, blocked).Scan(&ok)
+	return ok, err
 }
 
 func (r *OOTDPg) CommentOwner(ctx context.Context, commentID uuid.UUID) (uuid.UUID, error) {
@@ -284,13 +292,15 @@ func (r *OOTDPg) FollowedFeed(ctx context.Context, viewerID uuid.UUID, limit, of
 	if err := r.pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM ootd_posts p
 		   JOIN user_follows uf ON uf.followee_id = p.user_id
-		  WHERE uf.follower_id=$1 AND p.deleted_at IS NULL AND p.status='published'`, viewerID).
+		  WHERE uf.follower_id=$1 AND p.deleted_at IS NULL AND p.status='published'
+		    AND p.user_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id=$1)`, viewerID).
 		Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	rows, err := r.pool.Query(ctx,
 		postSelect+` JOIN user_follows uf ON uf.followee_id = p.user_id
 		  WHERE uf.follower_id=$1 AND p.deleted_at IS NULL AND p.status='published'
+		    AND p.user_id NOT IN (SELECT blocked_id FROM user_blocks WHERE blocker_id=$1)
 		  ORDER BY p.created_at DESC LIMIT $2 OFFSET $3`, viewerID, limit, offset)
 	if err != nil {
 		return nil, 0, err

@@ -51,6 +51,9 @@ import (
 	"github.com/wearwhere/wearwhere_be/internal/shipping/location"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/weight"
+	followhandler "github.com/wearwhere/wearwhere_be/internal/follow/handler"
+	followrepo "github.com/wearwhere/wearwhere_be/internal/follow/repo"
+	followservice "github.com/wearwhere/wearwhere_be/internal/follow/service"
 	ootdhandler "github.com/wearwhere/wearwhere_be/internal/ootd/handler"
 	ootdrepo "github.com/wearwhere/wearwhere_be/internal/ootd/repo"
 	ootdservice "github.com/wearwhere/wearwhere_be/internal/ootd/service"
@@ -116,6 +119,8 @@ func main() {
 	reviewRepo := reviewrepo.NewReviewPG(pgPool)
 	reviewSvc := reviewservice.NewWithRepo(reviewRepo)
 	reviewHandler := reviewhandler.New(reviewSvc)
+	followSvc := followservice.New(followrepo.NewFollowPG(pgPool))
+	followHandler := followhandler.New(followSvc)
 
 	// ── storage ──
 	storageBackend, err := storage.New(storage.Config{
@@ -338,6 +343,7 @@ func main() {
 	reviewsAuthed := v1.Group("", middleware.RequireAuth(jwtIssuer))
 	reviewhandler.MountReviewsAuthed(reviewsAuthed, reviewHandler)
 	ootdhandler.MountOOTDAuthed(reviewsAuthed, ootdHandler)
+	followhandler.MountFollowAuthed(reviewsAuthed, followHandler)
 
 	location.RegisterRoutes(v1, location.NewHandler(locSvc))
 	paymenthandler.MountPublic(v1, paymentH)

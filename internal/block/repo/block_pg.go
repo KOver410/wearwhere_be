@@ -34,7 +34,9 @@ func (r *BlockPG) Unblock(ctx context.Context, blocker, blocked uuid.UUID) error
 
 func (r *BlockPG) ListBlocked(ctx context.Context, blocker uuid.UUID, limit, offset int) ([]domain.BlockedUserItem, int, error) {
 	var total int
-	if err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM user_blocks WHERE blocker_id=$1`, blocker).Scan(&total); err != nil {
+	if err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM user_blocks b JOIN users u ON u.id = b.blocked_id
+		  WHERE b.blocker_id=$1 AND u.deleted_at IS NULL`, blocker).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	rows, err := r.pool.Query(ctx,

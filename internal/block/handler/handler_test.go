@@ -62,3 +62,23 @@ func TestListBlocked_OK(t *testing.T) {
 		t.Fatalf("status=%d want 200; body=%s", w.Code, w.Body.String())
 	}
 }
+
+func TestUnblockUser_OK(t *testing.T) {
+	r := setup(uuid.New(), true)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodDelete, "/api/v1/users/"+uuid.New().String()+"/block", nil)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d want 200; body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestUnblockUser_InvalidUUID(t *testing.T) {
+	r := setup(uuid.New(), true)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodDelete, "/api/v1/users/not-a-uuid/block", nil)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status=%d want 404 (matches the module's bad-UUID convention); body=%s", w.Code, w.Body.String())
+	}
+}

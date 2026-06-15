@@ -174,7 +174,7 @@ func TestBlock_HidesPostFromFeedAndByUserAndDetail(t *testing.T) {
 	ctx := context.Background()
 	r := NewOOTDPg(testPool)
 
-	postID, author := makePost(t, r, nil)
+	_, author := makePost(t, r, nil)
 	viewer := testfixtures.SeedCustomer(t, testPool)
 
 	// Before blocking: visible in feed, by-user, and detail-eligible.
@@ -209,7 +209,11 @@ func TestBlock_HidesPostFromFeedAndByUserAndDetail(t *testing.T) {
 	_, total, err = r.FeedList(ctx, other.ID, 20, 0)
 	require.NoError(t, err)
 	require.Equal(t, 1, total)
-	require.NotEqual(t, uuid.Nil, postID) // postID is used by the assertions above
+
+	// Guest (uuid.Nil) also sees the post — the block is viewer-scoped.
+	_, total, err = r.FeedList(ctx, uuid.Nil, 20, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
 }
 
 func TestBlock_HidesCommentsFromBlocker(t *testing.T) {
@@ -242,4 +246,33 @@ func TestBlock_HidesCommentsFromBlocker(t *testing.T) {
 	_, total, err = r.ListComments(ctx, uuid.Nil, postID, 20, 0)
 	require.NoError(t, err)
 	require.Equal(t, 1, total)
+}
+
+func TestBlock_HidesFollowedFeedFromBlocker(t *testing.T) {
+	testfixtures.Clean(t, testPool)
+	ctx := context.Background()
+	r := NewOOTDPg(testPool)
+
+	_, author := makePost(t, r, nil)
+	viewer := testfixtures.SeedCustomer(t, testPool)
+
+	// viewer follows the author
+	_, err := testPool.Exec(ctx,
+		`INSERT INTO user_follows (follower_id, followee_id) VALUES ($1,$2)`, viewer.ID, author)
+	require.NoError(t, err)
+
+	// followed feed shows the author's post
+	_, total, err := r.FollowedFeed(ctx, viewer.ID, 20, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
+
+	// viewer blocks the author
+	_, err = testPool.Exec(ctx,
+		`INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1,$2)`, viewer.ID, author)
+	require.NoError(t, err)
+
+	// followed feed now empty for the blocker
+	_, total, err = r.FollowedFeed(ctx, viewer.ID, 20, 0)
+	require.NoError(t, err)
+	require.Equal(t, 0, total)
 }

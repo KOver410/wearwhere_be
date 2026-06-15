@@ -126,6 +126,17 @@ func (s *Service) enrich(ctx context.Context, views []*domain.PostView, viewerID
 	return nil
 }
 
+func (s *Service) Following(ctx context.Context, viewerID uuid.UUID, page, limit int) ([]*domain.PostView, int, error) {
+	views, total, err := s.repo.FollowedFeed(ctx, viewerID, limit, (page-1)*limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := s.enrich(ctx, views, viewerID); err != nil {
+		return nil, 0, err
+	}
+	return views, total, nil
+}
+
 func (s *Service) Feed(ctx context.Context, viewerID uuid.UUID, page, limit int) ([]*domain.PostView, int, error) {
 	views, total, err := s.repo.FeedList(ctx, limit, (page-1)*limit)
 	if err != nil {

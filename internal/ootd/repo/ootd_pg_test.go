@@ -148,3 +148,23 @@ func TestOOTD_UpdateCaption(t *testing.T) {
 	require.Equal(t, "updated caption", *got.Caption)
 	require.ErrorIs(t, r.UpdateCaption(ctx, uuid.New(), ptr("x")), ErrNotFound)
 }
+
+func TestOOTD_FollowedFeed(t *testing.T) {
+	testfixtures.Clean(t, testPool)
+	ctx := context.Background()
+	r := NewOOTDPg(testPool)
+	viewer := testfixtures.SeedCustomer(t, testPool)
+	// author the viewer follows
+	postID, authorID := makePost(t, r, nil)
+	// a post by someone the viewer does NOT follow
+	makePost(t, r, nil)
+	// viewer follows authorID
+	_, err := testPool.Exec(ctx, `INSERT INTO user_follows (follower_id, followee_id) VALUES ($1,$2)`, viewer.ID, authorID)
+	require.NoError(t, err)
+
+	feed, total, err := r.FollowedFeed(ctx, viewer.ID, 20, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
+	require.Len(t, feed, 1)
+	require.Equal(t, postID, feed[0].ID)
+}

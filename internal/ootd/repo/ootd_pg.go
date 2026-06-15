@@ -279,6 +279,34 @@ func (r *OOTDPg) CommentOwner(ctx context.Context, commentID uuid.UUID) (uuid.UU
 	return owner, nil
 }
 
+func (r *OOTDPg) FollowedFeed(ctx context.Context, viewerID uuid.UUID, limit, offset int) ([]*domain.PostView, int, error) {
+	var total int
+	if err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM ootd_posts p
+		   JOIN user_follows uf ON uf.followee_id = p.user_id
+		  WHERE uf.follower_id=$1 AND p.deleted_at IS NULL AND p.status='published'`, viewerID).
+		Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := r.pool.Query(ctx,
+		postSelect+` JOIN user_follows uf ON uf.followee_id = p.user_id
+		  WHERE uf.follower_id=$1 AND p.deleted_at IS NULL AND p.status='published'
+		  ORDER BY p.created_at DESC LIMIT $2 OFFSET $3`, viewerID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var out []*domain.PostView
+	for rows.Next() {
+		v, err := scanPostView(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		out = append(out, v)
+	}
+	return out, total, rows.Err()
+}
+
 func (r *OOTDPg) SoftDeleteComment(ctx context.Context, commentID uuid.UUID) error {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {

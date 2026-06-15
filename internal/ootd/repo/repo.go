@@ -34,4 +34,6 @@ type Repo interface {
 	// CommentOwner returns the comment's author id (ErrNotFound if missing/deleted).
 	CommentOwner(ctx context.Context, commentID uuid.UUID) (uuid.UUID, error)
 	SoftDeleteComment(ctx context.Context, commentID uuid.UUID) error
+	// FollowedFeed returns published posts from users the viewer follows.
+	FollowedFeed(ctx context.Context, viewerID uuid.UUID, limit, offset int) ([]*domain.PostView, int, error)
 }

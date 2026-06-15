@@ -143,7 +143,9 @@ Gemini-composed outfits from the customer's owned items, plus complementary prod
 Distinct products from the user's completed/delivered order items (dedup by product). May be empty.
 
 ### 5.2 Outfit generation (Gemini via shared `llm` port)
-Send the closet (each item's name + category + style_tags) to Gemini, which returns outfit JSON `[{title, note, owned_product_ids[]}]`. The system prompt forbids inventing items not in the closet. Then, per outfit, the **retriever** picks 1–2 complementary in-stock products → `to_buy[]`.
+Send the closet (each item's name + category + style_tags) to Gemini, which returns outfit JSON `[{title, note, owned_product_ids[]}]`. The system prompt forbids inventing items not in the closet.
+
+**Text metadata only — no product images are sent to the model.** Gemini reasons over name/category/style_tags (text), not visual color/pattern. `primary_image_url` is returned in the response cards for the FE to display, but is never fed to the model. (Multimodal/vision was considered and deferred — see §8.) Then, per outfit, the **retriever** picks 1–2 complementary in-stock products → `to_buy[]`.
 
 Each returned outfit has two parts:
 - `owned[]` — pieces the user already has (may be empty),
@@ -224,6 +226,7 @@ If Gemini times out / errors / safety-blocks, still return `closet` (DB data) wi
 
 ## 8. Out-of-Scope / Follow-ups (file as issues)
 
+- Multimodal/vision outfit composition (feeding product images to Gemini for color/pattern-aware pairing) — deferred for token cost, latency, and image-handling complexity; UC30 uses text metadata only.
 - Browsing/clickstream tracking to enrich UC29.
 - LLM-ranked recommendations / embeddings.
 - Per-user daily quota on wardrobe regeneration (currently gated only by staleness + TTL).

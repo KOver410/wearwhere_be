@@ -112,4 +112,3 @@ func (h *Handler) FollowingBrands(c *gin.Context) {
 	}
 	httpx.OK(c, gin.H{"items": items, "pagination": domain.NewPagination(page, limit, total)})
 }
-

@@ -21,6 +21,7 @@ type fakeRepo struct {
 	createErr error
 	owner     uuid.UUID
 	post      *domain.PostView
+	blocked   bool
 }
 
 func (f *fakeRepo) CreatePost(_ context.Context, p *domain.Post, _ []uuid.UUID) error {
@@ -36,8 +37,10 @@ func (f *fakeRepo) GetPost(_ context.Context, id uuid.UUID) (*domain.PostView, e
 	}
 	return f.post, nil
 }
-func (f *fakeRepo) FeedList(context.Context, int, int) ([]*domain.PostView, int, error) { return nil, 0, nil }
-func (f *fakeRepo) ListByUser(context.Context, uuid.UUID, int, int) ([]*domain.PostView, int, error) {
+func (f *fakeRepo) FeedList(context.Context, uuid.UUID, int, int) ([]*domain.PostView, int, error) {
+	return nil, 0, nil
+}
+func (f *fakeRepo) ListByUser(context.Context, uuid.UUID, uuid.UUID, int, int) ([]*domain.PostView, int, error) {
 	return nil, 0, nil
 }
 func (f *fakeRepo) UpdateCaption(context.Context, uuid.UUID, *string) error { return nil }
@@ -51,13 +54,16 @@ func (f *fakeRepo) TagsForPosts(context.Context, []uuid.UUID) (map[uuid.UUID][]d
 	return map[uuid.UUID][]domain.ProductTag{}, nil
 }
 func (f *fakeRepo) AddComment(_ context.Context, c *domain.Comment) error { c.ID = uuid.New(); return nil }
-func (f *fakeRepo) ListComments(context.Context, uuid.UUID, int, int) ([]*domain.CommentView, int, error) {
+func (f *fakeRepo) ListComments(context.Context, uuid.UUID, uuid.UUID, int, int) ([]*domain.CommentView, int, error) {
 	return nil, 0, nil
 }
 func (f *fakeRepo) CommentOwner(_ context.Context, _ uuid.UUID) (uuid.UUID, error) { return f.owner, nil }
 func (f *fakeRepo) SoftDeleteComment(context.Context, uuid.UUID) error             { return nil }
 func (f *fakeRepo) FollowedFeed(context.Context, uuid.UUID, int, int) ([]*domain.PostView, int, error) {
 	return nil, 0, nil
+}
+func (f *fakeRepo) IsBlocked(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
+	return f.blocked, nil
 }
 
 // memStorage is an in-memory storage.Storage for tests.
@@ -156,5 +162,28 @@ func TestCreatePost_CaptionTooLong_Error(t *testing.T) {
 	_, err := svc.CreatePost(context.Background(), uuid.New(), string(long), files, nil)
 	if err == nil {
 		t.Fatal("expected CAPTION_TOO_LONG error")
+	}
+}
+
+func TestGetPost_HiddenWhenViewerBlockedAuthor(t *testing.T) {
+	author := uuid.New()
+	f := &fakeRepo{
+		post:    &domain.PostView{Post: domain.Post{ID: uuid.New(), UserID: author}},
+		blocked: true,
+	}
+	svc := newSvc(f, &memStorage{})
+	if _, err := svc.GetPost(context.Background(), uuid.New(), f.post.ID); err == nil {
+		t.Fatal("expected POST_NOT_FOUND when viewer has blocked the author")
+	}
+}
+
+func TestGetPost_VisibleToGuest(t *testing.T) {
+	f := &fakeRepo{
+		post:    &domain.PostView{Post: domain.Post{ID: uuid.New(), UserID: uuid.New()}},
+		blocked: true, // ignored: guest viewer (uuid.Nil) skips the block check
+	}
+	svc := newSvc(f, &memStorage{})
+	if _, err := svc.GetPost(context.Background(), uuid.Nil, f.post.ID); err != nil {
+		t.Fatalf("guest should see the post: %v", err)
 	}
 }

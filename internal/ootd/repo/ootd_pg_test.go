@@ -97,7 +97,7 @@ func TestOOTD_Comment_AddListDelete_Counts(t *testing.T) {
 	got, _ := r.GetPost(ctx, postID)
 	require.Equal(t, 1, got.CommentCount)
 
-	list, total, err := r.ListComments(ctx, postID, 20, 0)
+	list, total, err := r.ListComments(ctx, uuid.Nil, postID, 20, 0)
 	require.NoError(t, err)
 	require.Equal(t, 1, total)
 	require.Len(t, list, 1)
@@ -122,13 +122,13 @@ func TestOOTD_FeedAndByUser_ExcludeDeleted(t *testing.T) {
 	p2, _ := makePost(t, r, nil)
 	require.NoError(t, r.SoftDeletePost(ctx, p2))
 
-	feed, total, err := r.FeedList(ctx, 20, 0)
+	feed, total, err := r.FeedList(ctx, uuid.Nil, 20, 0)
 	require.NoError(t, err)
 	require.Equal(t, 1, total)
 	require.Len(t, feed, 1)
 	require.Equal(t, p1, feed[0].ID)
 
-	byUser, total, err := r.ListByUser(ctx, u1, 20, 0)
+	byUser, total, err := r.ListByUser(ctx, uuid.Nil, u1, 20, 0)
 	require.NoError(t, err)
 	require.Equal(t, 1, total)
 	require.Equal(t, p1, byUser[0].ID)
@@ -167,4 +167,112 @@ func TestOOTD_FollowedFeed(t *testing.T) {
 	require.Equal(t, 1, total)
 	require.Len(t, feed, 1)
 	require.Equal(t, postID, feed[0].ID)
+}
+
+func TestBlock_HidesPostFromFeedAndByUserAndDetail(t *testing.T) {
+	testfixtures.Clean(t, testPool)
+	ctx := context.Background()
+	r := NewOOTDPg(testPool)
+
+	_, author := makePost(t, r, nil)
+	viewer := testfixtures.SeedCustomer(t, testPool)
+
+	// Before blocking: visible in feed, by-user, and detail-eligible.
+	posts, total, err := r.FeedList(ctx, viewer.ID, 20, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
+	require.Len(t, posts, 1)
+
+	// Block the author.
+	_, err = testPool.Exec(ctx,
+		`INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1,$2)`, viewer.ID, author)
+	require.NoError(t, err)
+
+	// Feed now empty for the blocker.
+	posts, total, err = r.FeedList(ctx, viewer.ID, 20, 0)
+	require.NoError(t, err)
+	require.Equal(t, 0, total)
+	require.Len(t, posts, 0)
+
+	// By-user listing of the blocked author is empty for the blocker.
+	_, total, err = r.ListByUser(ctx, viewer.ID, author, 20, 0)
+	require.NoError(t, err)
+	require.Equal(t, 0, total)
+
+	// IsBlocked reports the relationship (drives the Detail 404 in the service).
+	blocked, err := r.IsBlocked(ctx, viewer.ID, author)
+	require.NoError(t, err)
+	require.True(t, blocked)
+
+	// A different viewer still sees the post.
+	other := testfixtures.SeedCustomer(t, testPool)
+	_, total, err = r.FeedList(ctx, other.ID, 20, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
+
+	// Guest (uuid.Nil) also sees the post — the block is viewer-scoped.
+	_, total, err = r.FeedList(ctx, uuid.Nil, 20, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
+}
+
+func TestBlock_HidesCommentsFromBlocker(t *testing.T) {
+	testfixtures.Clean(t, testPool)
+	ctx := context.Background()
+	r := NewOOTDPg(testPool)
+
+	postID, _ := makePost(t, r, nil)
+	commenter := testfixtures.SeedCustomer(t, testPool)
+	viewer := testfixtures.SeedCustomer(t, testPool)
+
+	require.NoError(t, r.AddComment(ctx, &domain.Comment{PostID: postID, UserID: commenter.ID, Body: "nice"}))
+
+	// Visible before block.
+	_, total, err := r.ListComments(ctx, viewer.ID, postID, 20, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
+
+	// Viewer blocks the commenter.
+	_, err = testPool.Exec(ctx,
+		`INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1,$2)`, viewer.ID, commenter.ID)
+	require.NoError(t, err)
+
+	// Comment hidden from the blocker.
+	_, total, err = r.ListComments(ctx, viewer.ID, postID, 20, 0)
+	require.NoError(t, err)
+	require.Equal(t, 0, total)
+
+	// Still visible to a guest.
+	_, total, err = r.ListComments(ctx, uuid.Nil, postID, 20, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
+}
+
+func TestBlock_HidesFollowedFeedFromBlocker(t *testing.T) {
+	testfixtures.Clean(t, testPool)
+	ctx := context.Background()
+	r := NewOOTDPg(testPool)
+
+	_, author := makePost(t, r, nil)
+	viewer := testfixtures.SeedCustomer(t, testPool)
+
+	// viewer follows the author
+	_, err := testPool.Exec(ctx,
+		`INSERT INTO user_follows (follower_id, followee_id) VALUES ($1,$2)`, viewer.ID, author)
+	require.NoError(t, err)
+
+	// followed feed shows the author's post
+	_, total, err := r.FollowedFeed(ctx, viewer.ID, 20, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
+
+	// viewer blocks the author
+	_, err = testPool.Exec(ctx,
+		`INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1,$2)`, viewer.ID, author)
+	require.NoError(t, err)
+
+	// followed feed now empty for the blocker
+	_, total, err = r.FollowedFeed(ctx, viewer.ID, 20, 0)
+	require.NoError(t, err)
+	require.Equal(t, 0, total)
 }

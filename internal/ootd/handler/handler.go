@@ -200,7 +200,7 @@ func (h *Handler) ListComments(c *gin.Context) {
 		return
 	}
 	page, limit := parsePage(c)
-	list, total, err := h.svc.ListComments(c.Request.Context(), id, page, limit)
+	list, total, err := h.svc.ListComments(c.Request.Context(), h.userID(c), id, page, limit)
 	if err != nil {
 		httpx.ErrorFromApp(c, err)
 		return

@@ -40,8 +40,10 @@ func (f *fakeRepo) GetPost(_ context.Context, _ uuid.UUID) (*domain.PostView, er
 	}
 	return f.post, nil
 }
-func (f *fakeRepo) FeedList(context.Context, int, int) ([]*domain.PostView, int, error) { return nil, 0, nil }
-func (f *fakeRepo) ListByUser(context.Context, uuid.UUID, int, int) ([]*domain.PostView, int, error) {
+func (f *fakeRepo) FeedList(context.Context, uuid.UUID, int, int) ([]*domain.PostView, int, error) {
+	return nil, 0, nil
+}
+func (f *fakeRepo) ListByUser(context.Context, uuid.UUID, uuid.UUID, int, int) ([]*domain.PostView, int, error) {
 	return nil, 0, nil
 }
 func (f *fakeRepo) UpdateCaption(context.Context, uuid.UUID, *string) error { return nil }
@@ -55,13 +57,16 @@ func (f *fakeRepo) TagsForPosts(context.Context, []uuid.UUID) (map[uuid.UUID][]d
 	return map[uuid.UUID][]domain.ProductTag{}, nil
 }
 func (f *fakeRepo) AddComment(_ context.Context, c *domain.Comment) error { c.ID = uuid.New(); return nil }
-func (f *fakeRepo) ListComments(context.Context, uuid.UUID, int, int) ([]*domain.CommentView, int, error) {
+func (f *fakeRepo) ListComments(context.Context, uuid.UUID, uuid.UUID, int, int) ([]*domain.CommentView, int, error) {
 	return nil, 0, nil
 }
 func (f *fakeRepo) CommentOwner(_ context.Context, _ uuid.UUID) (uuid.UUID, error) { return f.owner, nil }
 func (f *fakeRepo) SoftDeleteComment(context.Context, uuid.UUID) error             { return nil }
 func (f *fakeRepo) FollowedFeed(context.Context, uuid.UUID, int, int) ([]*domain.PostView, int, error) {
 	return nil, 0, nil
+}
+func (f *fakeRepo) IsBlocked(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
+	return false, nil
 }
 
 // memStorage is an in-memory storage.Storage for tests.

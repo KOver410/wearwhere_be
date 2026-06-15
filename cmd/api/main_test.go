@@ -54,6 +54,9 @@ import (
 	"github.com/wearwhere/wearwhere_be/internal/shipping/goship"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/location"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
+	blockhandler "github.com/wearwhere/wearwhere_be/internal/block/handler"
+	blockrepo "github.com/wearwhere/wearwhere_be/internal/block/repo"
+	blockservice "github.com/wearwhere/wearwhere_be/internal/block/service"
 	followhandler "github.com/wearwhere/wearwhere_be/internal/follow/handler"
 	followrepo "github.com/wearwhere/wearwhere_be/internal/follow/repo"
 	followservice "github.com/wearwhere/wearwhere_be/internal/follow/service"
@@ -154,11 +157,13 @@ func buildTestServer(t *testing.T, pool *pgxpool.Pool, storageBackend storage.St
 
 	followSvc := followservice.New(followrepo.NewFollowPG(pool))
 	followHandler := followhandler.New(followSvc)
+	blockHandler := blockhandler.New(blockservice.New(blockrepo.NewBlockPG(pool)))
 
 	reviewsAuthed := v1.Group("", authmw.RequireAuth(jwtIssuer))
 	reviewhandler.MountReviewsAuthed(reviewsAuthed, reviewHandler)
 	ootdhandler.MountOOTDAuthed(reviewsAuthed, ootdHandler)
 	followhandler.MountFollowAuthed(reviewsAuthed, followHandler)
+	blockhandler.MountBlockAuthed(reviewsAuthed, blockHandler)
 
 	// ── Sprint 3: orders, payment, PayOS ──
 	orderRepo := orderrepo.NewOrderPG(pool)

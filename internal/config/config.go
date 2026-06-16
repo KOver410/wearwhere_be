@@ -28,6 +28,7 @@ type Config struct {
 	Reservation    ReservationConfig
 	CORS           CORSConfig
 	Recommendation RecommendationConfig
+	AI             AIConfig
 }
 
 type AppConfig struct {
@@ -217,6 +218,13 @@ func Load() (*Config, error) {
 		MaxLimit:      getInt("REC_FEED_MAX_LIMIT", 50),
 		CandidatePool: getInt("REC_CANDIDATE_POOL", 300),
 	}
+	cfg.AI = AIConfig{
+		Provider: getEnv("AI_PROVIDER", "mock"),
+		APIKey:   getEnv("GEMINI_API_KEY", ""),
+		Model:    getEnv("GEMINI_MODEL", "gemini-2.0-flash"),
+		BaseURL:  getEnv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com"),
+		Timeout:  getDuration("AI_REQUEST_TIMEOUT", 15*time.Second),
+	}
 	return cfg, nil
 }
 
@@ -264,6 +272,14 @@ type RecommendationConfig struct {
 	DefaultLimit  int // env REC_FEED_DEFAULT_LIMIT, default 20
 	MaxLimit      int // env REC_FEED_MAX_LIMIT, default 50
 	CandidatePool int // env REC_CANDIDATE_POOL, default 300 — max products scored per request
+}
+
+type AIConfig struct {
+	Provider string        // env AI_PROVIDER: "mock" | "gemini" (default "mock")
+	APIKey   string        // env GEMINI_API_KEY
+	Model    string        // env GEMINI_MODEL (default "gemini-2.0-flash")
+	BaseURL  string        // env GEMINI_BASE_URL (default "https://generativelanguage.googleapis.com")
+	Timeout  time.Duration // env AI_REQUEST_TIMEOUT (default 15s)
 }
 
 func (c *Config) IsProduction() bool { return c.App.Env == "production" }

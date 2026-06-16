@@ -81,3 +81,20 @@ func TestStyleProfilePG_UnknownTagIDs(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []uuid.UUID{missing}, unknown)
 }
+
+func TestStyleProfilePG_UpsertWithEmptyTagsClearsAll(t *testing.T) {
+	ctx := context.Background()
+	tx := testfixtures.BeginTx(t, pool)
+	user := testfixtures.SeedCustomer(t, tx)
+	tag := testfixtures.SeedStyleTag(t, tx)
+	r := repo.NewStyleProfilePG(tx)
+
+	v1, err := r.Upsert(ctx, domain.UpsertParams{UserID: user.ID, StyleTagIDs: []uuid.UUID{tag.ID}})
+	require.NoError(t, err)
+	require.Len(t, v1.StyleTags, 1)
+
+	// A second upsert with no tags must clear the tag set (not error).
+	v2, err := r.Upsert(ctx, domain.UpsertParams{UserID: user.ID, StyleTagIDs: []uuid.UUID{}})
+	require.NoError(t, err)
+	require.Empty(t, v2.StyleTags)
+}

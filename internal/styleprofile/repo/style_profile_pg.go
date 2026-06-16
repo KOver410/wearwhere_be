@@ -37,9 +37,10 @@ func (r *StyleProfilePG) UnknownTagIDs(ctx context.Context, ids []uuid.UUID) ([]
 	return out, rows.Err()
 }
 
-// Upsert runs the profile write + tag replacement as a single multi-statement
-// query. Postgres executes every data-modifying CTE exactly once and to
-// completion, so the delete+insert of tags is atomic even on a connection pool.
+// Upsert runs the profile write + tag replacement as a single statement.
+// Postgres executes every data-modifying CTE exactly once and to completion
+// within that one implicit transaction, so the delete+insert of tags is
+// atomic — no explicit BEGIN/COMMIT needed even when db is a connection pool.
 func (r *StyleProfilePG) Upsert(ctx context.Context, p domain.UpsertParams) (*domain.StyleProfileView, error) {
 	_, err := r.db.Exec(ctx,
 		`WITH up AS (

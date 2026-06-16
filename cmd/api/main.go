@@ -66,6 +66,9 @@ import (
 	wishlisthandler "github.com/wearwhere/wearwhere_be/internal/wishlist/handler"
 	wishlistrepo "github.com/wearwhere/wearwhere_be/internal/wishlist/repo"
 	wishlistservice "github.com/wearwhere/wearwhere_be/internal/wishlist/service"
+	styleprofilehandler "github.com/wearwhere/wearwhere_be/internal/styleprofile/handler"
+	styleprofilerepo "github.com/wearwhere/wearwhere_be/internal/styleprofile/repo"
+	styleprofileservice "github.com/wearwhere/wearwhere_be/internal/styleprofile/service"
 
 	"github.com/wearwhere/wearwhere_be/internal/maps/goong"
 	storehandler "github.com/wearwhere/wearwhere_be/internal/store/handler"
@@ -292,6 +295,8 @@ func main() {
 	customerAddrHandler := customeraddrhandler.New(customerAddrSvc)
 	wishlistHandler := wishlisthandler.New(wishlistSvc)
 	cartHandler := carthandler.New(cartSvc)
+	styleProfileSvc := styleprofileservice.New(styleprofilerepo.NewStyleProfilePG(pgPool))
+	styleProfileHandler := styleprofilehandler.New(styleProfileSvc)
 
 	// ── router ──
 	r := gin.New()
@@ -343,6 +348,7 @@ func main() {
 	wishlisthandler.Mount(customerGroup, wishlistHandler)
 	carthandler.Mount(customerGroup, cartHandler)
 	orderhandler.Mount(customerGroup, orderH)
+	styleprofilehandler.Mount(customerGroup, styleProfileHandler)
 
 	reviewsAuthed := v1.Group("", middleware.RequireAuth(jwtIssuer))
 	reviewhandler.MountReviewsAuthed(reviewsAuthed, reviewHandler)

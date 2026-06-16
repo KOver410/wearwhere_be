@@ -19,7 +19,10 @@ type Cache interface {
 	Invalidate(ctx context.Context, userID uuid.UUID) error
 }
 
-// RedisCache is the production Cache. Key: rec:feed:{user}:{yyyymmdd}, TTL 24h.
+// RedisCache is the production Cache. Key: rec:feed:{user}:{yyyymmdd}. The key
+// is stamped with the UTC date, so a new key is used each day and yesterday's
+// key is never read — the 24h TTL only garbage-collects stale entries, which
+// realises the spec's "update daily" / end-of-day freshness.
 type RedisCache struct{ rdb *redis.Client }
 
 func NewRedisCache(rdb *redis.Client) *RedisCache { return &RedisCache{rdb: rdb} }

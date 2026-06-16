@@ -10,9 +10,16 @@ import (
 	"github.com/wearwhere/wearwhere_be/internal/styleprofile/repo"
 )
 
-type Service struct{ repo repo.StyleProfileRepo }
+type Service struct {
+	repo    repo.StyleProfileRepo
+	onSaved func(ctx context.Context, userID uuid.UUID)
+}
 
 func New(r repo.StyleProfileRepo) *Service { return &Service{repo: r} }
+
+// SetOnSaved registers a callback invoked after a profile is successfully
+// saved (used to invalidate the recommendation cache). Optional; nil-safe.
+func (s *Service) SetOnSaved(fn func(ctx context.Context, userID uuid.UUID)) { s.onSaved = fn }
 
 // Get returns the saved profile, or an empty (zero-value) view when the user
 // has never set one. GET never 404s on a missing profile.
@@ -68,10 +75,17 @@ func (s *Service) Save(ctx context.Context, userID uuid.UUID, req domain.UpdateS
 		}
 	}
 
-	return s.repo.Upsert(ctx, domain.UpsertParams{
+	view, err := s.repo.Upsert(ctx, domain.UpsertParams{
 		UserID:      userID,
 		StyleTagIDs: ids,
 		BudgetMin:   req.BudgetMin,
 		BudgetMax:   req.BudgetMax,
 	})
+	if err != nil {
+		return nil, err
+	}
+	if s.onSaved != nil {
+		s.onSaved(ctx, userID)
+	}
+	return view, nil
 }

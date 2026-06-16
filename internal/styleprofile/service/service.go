@@ -45,8 +45,8 @@ func (s *Service) LoadProfile(ctx context.Context, userID uuid.UUID) (*domain.St
 }
 
 // Save validates and upserts the profile. Idempotent: fully overwrites the
-// tag set and budget. Forward note: when UC29 lands, invalidate that user's
-// recommendation cache here after a successful upsert.
+// tag set and budget. On success it invokes the optional onSaved hook (set via
+// SetOnSaved) — used to invalidate the recommendation cache.
 func (s *Service) Save(ctx context.Context, userID uuid.UUID, req domain.UpdateStyleProfileRequest) (*domain.StyleProfileView, error) {
 	if req.BudgetMin != nil && req.BudgetMax != nil && *req.BudgetMax < *req.BudgetMin {
 		return nil, domain.ErrInvalidBudget

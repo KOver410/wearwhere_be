@@ -223,7 +223,7 @@ func Load() (*Config, error) {
 		APIKey:   getEnv("GEMINI_API_KEY", ""),
 		Model:    getEnv("GEMINI_MODEL", "gemini-2.0-flash"),
 		BaseURL:  getEnv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com"),
-		Timeout:  getDuration("AI_REQUEST_TIMEOUT", 30*time.Second),
+		Timeout:  getDuration("AI_REQUEST_TIMEOUT", 15*time.Second),
 	}
 	return cfg, nil
 }
@@ -279,7 +279,7 @@ type AIConfig struct {
 	APIKey   string        // env GEMINI_API_KEY
 	Model    string        // env GEMINI_MODEL (default "gemini-2.0-flash")
 	BaseURL  string        // env GEMINI_BASE_URL (default "https://generativelanguage.googleapis.com")
-	Timeout  time.Duration // env AI_REQUEST_TIMEOUT (default 30s)
+	Timeout  time.Duration // env AI_REQUEST_TIMEOUT (default 15s)
 }
 
 func (c *Config) IsProduction() bool { return c.App.Env == "production" }

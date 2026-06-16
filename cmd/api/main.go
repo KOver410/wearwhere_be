@@ -333,6 +333,9 @@ func main() {
 	)
 	recommendationHandler := recommendationhandler.New(recSvc)
 
+	// dayStamp is captured once at startup. It only affects the empty-closet
+	// daily refresh of the wardrobe signature, so a long-running process keeps
+	// the start-date stamp until restart (acceptable; processes restart on deploy).
 	dayStamp := time.Now().UTC().Format("20060102")
 	wardrobeSvc := wardrobeservice.New(
 		wardroberepo.NewClosetPG(pgPool),

@@ -46,6 +46,12 @@ func (r *CatalogRetriever) Retrieve(ctx context.Context, styleSlugs []string, bu
 	}
 	out := make([]wdomain.OutfitCard, 0, len(items))
 	for _, it := range items {
+		// Spec §5.2: only suggest in-stock products to buy. The catalog list
+		// returns active products regardless of stock (in_stock is informational),
+		// so filter here.
+		if !it.InStock {
+			continue
+		}
 		out = append(out, catalogItemToCard(it))
 	}
 	return out, nil

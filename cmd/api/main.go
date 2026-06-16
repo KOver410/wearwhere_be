@@ -75,6 +75,11 @@ import (
 	recommendationrepo "github.com/wearwhere/wearwhere_be/internal/recommendation/repo"
 	recommendationservice "github.com/wearwhere/wearwhere_be/internal/recommendation/service"
 
+	"github.com/wearwhere/wearwhere_be/internal/shared/llm"
+	wardrobehandler "github.com/wearwhere/wearwhere_be/internal/wardrobe/handler"
+	wardroberepo "github.com/wearwhere/wearwhere_be/internal/wardrobe/repo"
+	wardrobeservice "github.com/wearwhere/wearwhere_be/internal/wardrobe/service"
+
 	"github.com/wearwhere/wearwhere_be/internal/maps/goong"
 	storehandler "github.com/wearwhere/wearwhere_be/internal/store/handler"
 	storerepo "github.com/wearwhere/wearwhere_be/internal/store/repo"
@@ -168,6 +173,18 @@ func main() {
 	})
 	if err != nil {
 		log.Fatalf("goong client: %v", err)
+	}
+
+	// ── LLM client (wardrobe) ──
+	llmClient, err := llm.NewFromConfig(llm.Config{
+		Provider: cfg.AI.Provider,
+		APIKey:   cfg.AI.APIKey,
+		Model:    cfg.AI.Model,
+		BaseURL:  cfg.AI.BaseURL,
+		Timeout:  cfg.AI.Timeout,
+	})
+	if err != nil {
+		log.Fatalf("llm: %v", err)
 	}
 
 	// ── services ──
@@ -316,6 +333,17 @@ func main() {
 	)
 	recommendationHandler := recommendationhandler.New(recSvc)
 
+	dayStamp := time.Now().UTC().Format("20060102")
+	wardrobeSvc := wardrobeservice.New(
+		wardroberepo.NewClosetPG(pgPool),
+		wardroberepo.NewSnapshotPG(pgPool),
+		styleProfileSvc,
+		wardrobeservice.NewCatalogRetriever(catalogSvc),
+		llmClient,
+		wardrobeservice.Config{MaxOutfits: 5, ToBuyPerOutfit: 2, DayStamp: dayStamp},
+	)
+	wardrobeHandler := wardrobehandler.New(wardrobeSvc)
+
 	styleProfileSvc.SetOnSaved(func(ctx context.Context, userID uuid.UUID) {
 		if err := recSvc.Invalidate(ctx, userID); err != nil {
 			log.Printf("recommendation: invalidate after profile save failed for %s: %v", userID, err)
@@ -374,6 +402,7 @@ func main() {
 	orderhandler.Mount(customerGroup, orderH)
 	styleprofilehandler.Mount(customerGroup, styleProfileHandler)
 	recommendationhandler.Mount(customerGroup, recommendationHandler)
+	wardrobehandler.Mount(customerGroup, wardrobeHandler)
 
 	reviewsAuthed := v1.Group("", middleware.RequireAuth(jwtIssuer))
 	reviewhandler.MountReviewsAuthed(reviewsAuthed, reviewHandler)

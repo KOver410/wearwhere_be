@@ -84,3 +84,21 @@ func TestSave_PassesParsedParamsToRepo(t *testing.T) {
 	require.Equal(t, []uuid.UUID{tag}, f.upserted.StyleTagIDs)
 	require.Equal(t, 100000, *f.upserted.BudgetMin)
 }
+
+func TestSave_FiresOnSavedHook(t *testing.T) {
+	svc := service.New(&fakeRepo{})
+	var calledFor *uuid.UUID
+	svc.SetOnSaved(func(_ context.Context, userID uuid.UUID) { calledFor = &userID })
+
+	uid := uuid.New()
+	_, err := svc.Save(context.Background(), uid, domain.UpdateStyleProfileRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, calledFor, "onSaved hook must fire after a successful save")
+	require.Equal(t, uid, *calledFor)
+}
+
+func TestSave_NilHookIsSafe(t *testing.T) {
+	svc := service.New(&fakeRepo{})
+	_, err := svc.Save(context.Background(), uuid.New(), domain.UpdateStyleProfileRequest{})
+	require.NoError(t, err) // no hook set → no panic
+}

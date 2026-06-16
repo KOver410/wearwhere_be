@@ -10,9 +10,16 @@ import (
 	"github.com/wearwhere/wearwhere_be/internal/styleprofile/repo"
 )
 
-type Service struct{ repo repo.StyleProfileRepo }
+type Service struct {
+	repo    repo.StyleProfileRepo
+	onSaved func(ctx context.Context, userID uuid.UUID)
+}
 
 func New(r repo.StyleProfileRepo) *Service { return &Service{repo: r} }
+
+// SetOnSaved registers a callback invoked after a profile is successfully
+// saved (used to invalidate the recommendation cache). Optional; nil-safe.
+func (s *Service) SetOnSaved(fn func(ctx context.Context, userID uuid.UUID)) { s.onSaved = fn }
 
 // Get returns the saved profile, or an empty (zero-value) view when the user
 // has never set one. GET never 404s on a missing profile.
@@ -38,8 +45,8 @@ func (s *Service) LoadProfile(ctx context.Context, userID uuid.UUID) (*domain.St
 }
 
 // Save validates and upserts the profile. Idempotent: fully overwrites the
-// tag set and budget. Forward note: when UC29 lands, invalidate that user's
-// recommendation cache here after a successful upsert.
+// tag set and budget. On success it invokes the optional onSaved hook (set via
+// SetOnSaved) — used to invalidate the recommendation cache.
 func (s *Service) Save(ctx context.Context, userID uuid.UUID, req domain.UpdateStyleProfileRequest) (*domain.StyleProfileView, error) {
 	if req.BudgetMin != nil && req.BudgetMax != nil && *req.BudgetMax < *req.BudgetMin {
 		return nil, domain.ErrInvalidBudget
@@ -68,10 +75,17 @@ func (s *Service) Save(ctx context.Context, userID uuid.UUID, req domain.UpdateS
 		}
 	}
 
-	return s.repo.Upsert(ctx, domain.UpsertParams{
+	view, err := s.repo.Upsert(ctx, domain.UpsertParams{
 		UserID:      userID,
 		StyleTagIDs: ids,
 		BudgetMin:   req.BudgetMin,
 		BudgetMax:   req.BudgetMax,
 	})
+	if err != nil {
+		return nil, err
+	}
+	if s.onSaved != nil {
+		s.onSaved(ctx, userID)
+	}
+	return view, nil
 }

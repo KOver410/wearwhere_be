@@ -25,8 +25,9 @@ type Config struct {
 	Shipping    ShippingConfig
 	Goship      GoshipConfig
 	Goong       GoongConfig
-	Reservation ReservationConfig
-	CORS        CORSConfig
+	Reservation    ReservationConfig
+	CORS           CORSConfig
+	Recommendation RecommendationConfig
 }
 
 type AppConfig struct {
@@ -211,6 +212,11 @@ func Load() (*Config, error) {
 	cfg.CORS = CORSConfig{
 		AllowedOrigins: csvOrSingle("CORS_ALLOWED_ORIGINS", ""),
 	}
+	cfg.Recommendation = RecommendationConfig{
+		DefaultLimit:  getInt("REC_FEED_DEFAULT_LIMIT", 20),
+		MaxLimit:      getInt("REC_FEED_MAX_LIMIT", 50),
+		CandidatePool: getInt("REC_CANDIDATE_POOL", 300),
+	}
 	return cfg, nil
 }
 
@@ -252,6 +258,12 @@ type ReservationConfig struct {
 
 type CORSConfig struct {
 	AllowedOrigins []string
+}
+
+type RecommendationConfig struct {
+	DefaultLimit  int // env REC_FEED_DEFAULT_LIMIT, default 20
+	MaxLimit      int // env REC_FEED_MAX_LIMIT, default 50
+	CandidatePool int // env REC_CANDIDATE_POOL, default 300 — max products scored per request
 }
 
 func (c *Config) IsProduction() bool { return c.App.Env == "production" }

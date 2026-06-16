@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/wearwhere/wearwhere_be/internal/auth/handler"
 	"github.com/wearwhere/wearwhere_be/internal/auth/middleware"
@@ -69,6 +70,10 @@ import (
 	styleprofilehandler "github.com/wearwhere/wearwhere_be/internal/styleprofile/handler"
 	styleprofilerepo "github.com/wearwhere/wearwhere_be/internal/styleprofile/repo"
 	styleprofileservice "github.com/wearwhere/wearwhere_be/internal/styleprofile/service"
+
+	recommendationhandler "github.com/wearwhere/wearwhere_be/internal/recommendation/handler"
+	recommendationrepo "github.com/wearwhere/wearwhere_be/internal/recommendation/repo"
+	recommendationservice "github.com/wearwhere/wearwhere_be/internal/recommendation/service"
 
 	"github.com/wearwhere/wearwhere_be/internal/maps/goong"
 	storehandler "github.com/wearwhere/wearwhere_be/internal/store/handler"
@@ -298,6 +303,25 @@ func main() {
 	styleProfileSvc := styleprofileservice.New(styleprofilerepo.NewStyleProfilePG(pgPool))
 	styleProfileHandler := styleprofilehandler.New(styleProfileSvc)
 
+	recSvc := recommendationservice.New(
+		recommendationrepo.NewCandidatePG(pgPool),
+		recommendationrepo.NewSignalPG(pgPool),
+		styleProfileSvc,
+		recommendationservice.NewRedisCache(rdb),
+		recommendationservice.Config{
+			DefaultLimit:  cfg.Recommendation.DefaultLimit,
+			MaxLimit:      cfg.Recommendation.MaxLimit,
+			CandidatePool: cfg.Recommendation.CandidatePool,
+		},
+	)
+	recommendationHandler := recommendationhandler.New(recSvc)
+
+	styleProfileSvc.SetOnSaved(func(ctx context.Context, userID uuid.UUID) {
+		if err := recSvc.Invalidate(ctx, userID); err != nil {
+			log.Printf("recommendation: invalidate after profile save failed for %s: %v", userID, err)
+		}
+	})
+
 	// ── router ──
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -349,6 +373,7 @@ func main() {
 	carthandler.Mount(customerGroup, cartHandler)
 	orderhandler.Mount(customerGroup, orderH)
 	styleprofilehandler.Mount(customerGroup, styleProfileHandler)
+	recommendationhandler.Mount(customerGroup, recommendationHandler)
 
 	reviewsAuthed := v1.Group("", middleware.RequireAuth(jwtIssuer))
 	reviewhandler.MountReviewsAuthed(reviewsAuthed, reviewHandler)

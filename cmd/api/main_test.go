@@ -192,7 +192,8 @@ func buildTestServer(t *testing.T, pool *pgxpool.Pool, storageBackend storage.St
 	)
 
 	orderH := orderhandler.New(checkoutSvc, orderSvc)
-	paymentH := paymenthandler.New(webhookSvc, mockPayosClient, true /* mockMode */)
+	paymentH := paymenthandler.New(webhookSvc, mockPayosClient, true, /* mockMode */
+		"http://localhost:3000/checkout/success", "http://localhost:3000/checkout/cancel")
 
 	orderhandler.Mount(customerGroup, orderH)
 	paymenthandler.MountPublic(v1, paymentH)

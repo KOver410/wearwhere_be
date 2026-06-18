@@ -295,7 +295,7 @@ func main() {
 
 	// ── Sprint 3 handlers ──
 	orderH := orderhandler.New(checkoutSvc, orderSvc)
-	paymentH := paymenthandler.New(webhookSvc, payosClient, cfg.Payos.Mode == "mock")
+	paymentH := paymenthandler.New(webhookSvc, payosClient, cfg.Payos.Mode == "mock", cfg.Payos.ReturnURL, cfg.Payos.CancelURL)
 
 	// ── handlers ──
 	deps := &handler.Deps{

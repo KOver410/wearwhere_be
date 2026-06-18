@@ -14,14 +14,23 @@ import (
 // Handler holds the webhook service, a payos client (for signature verification),
 // and a flag indicating whether dev/mock endpoints are enabled.
 type Handler struct {
-	webhook  *service.WebhookService
-	payos    payos.Client
-	mockMode bool
+	webhook   *service.WebhookService
+	payos     payos.Client
+	mockMode  bool
+	returnURL string
+	cancelURL string
 }
 
-// New constructs a Handler.
-func New(w *service.WebhookService, pc payos.Client, mockMode bool) *Handler {
-	return &Handler{webhook: w, payos: pc, mockMode: mockMode}
+// New constructs a Handler. returnURL/cancelURL are the PayOS return/cancel
+// redirect targets, used by the mock checkout page to mirror real PayOS.
+func New(w *service.WebhookService, pc payos.Client, mockMode bool, returnURL, cancelURL string) *Handler {
+	return &Handler{
+		webhook:   w,
+		payos:     pc,
+		mockMode:  mockMode,
+		returnURL: returnURL,
+		cancelURL: cancelURL,
+	}
 }
 
 // PayosWebhook receives a payment confirmation callback from PayOS.
@@ -103,6 +112,19 @@ func (h *Handler) SimulateWebhook(c *gin.Context) {
 
 	if err := h.webhook.HandlePayosWebhook(c.Request.Context(), payload); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// A browser form submit (the mock checkout page's Pay/Cancel buttons)
+	// expects to be redirected to the PayOS return/cancel URL, mirroring real
+	// PayOS so the app's WebView can detect the outcome by URL prefix.
+	// JSON callers (tests, dev tooling) still get the JSON body.
+	if c.ContentType() == "application/x-www-form-urlencoded" {
+		target := h.returnURL
+		if !success {
+			target = h.cancelURL
+		}
+		c.Redirect(http.StatusSeeOther, target)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"simulated": true, "success": success, "orderCode": req.OrderCode})

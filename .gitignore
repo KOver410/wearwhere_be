@@ -10,6 +10,9 @@ vendor/
 .vscode/
 *.log
 
+# Local file storage (runtime).
+uploads/
+
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
@@ -19,6 +22,8 @@ vendor/
 
 # Terraform
 deploy/terraform/.terraform/
+deploy/terraform/tfplan
+*.tfplan
 deploy/terraform/terraform.tfvars
 *.tfstate
 *.tfstate.*

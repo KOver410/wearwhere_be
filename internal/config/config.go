@@ -179,6 +179,12 @@ func Load() (*Config, error) {
 			AllowedMIMEs:   csvOrSingle("STORAGE_ALLOWED_MIMES", ""),
 		},
 	}
+	// Documented default: image uploads accept JPG/PNG/WebP. Without this,
+	// an unset STORAGE_ALLOWED_MIMES leaves the allow-list empty and every
+	// upload is rejected with INVALID_MIME.
+	if len(cfg.Storage.AllowedMIMEs) == 0 {
+		cfg.Storage.AllowedMIMEs = []string{"image/jpeg", "image/png", "image/webp"}
+	}
 	cfg.Payos = PayosConfig{
 		Mode:        getEnv("PAYOS_MODE", "mock"),
 		ClientID:    getEnv("PAYOS_CLIENT_ID", ""),

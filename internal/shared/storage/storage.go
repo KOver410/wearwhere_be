@@ -1,6 +1,6 @@
 // Package storage provides a pluggable file storage abstraction.
 // Local backs onto the host filesystem (dev). GCS backs onto Google Cloud
-// Storage (prod, stubbed in Sprint 1).
+// Storage (prod).
 package storage
 
 import (
@@ -9,10 +9,7 @@ import (
 	"io"
 )
 
-var (
-	ErrNotImplemented = errors.New("storage: not implemented")
-	ErrNotFound       = errors.New("storage: object not found")
-)
+var ErrNotFound = errors.New("storage: object not found")
 
 type Object struct {
 	Key         string // path-like, e.g. "products/<uuid>/<file>.jpg"

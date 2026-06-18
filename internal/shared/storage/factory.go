@@ -23,7 +23,7 @@ func New(cfg Config) (Storage, error) {
 	case "local", "":
 		return NewLocal(cfg.LocalDir, cfg.BaseURL), nil
 	case "gcs":
-		return NewGCS(cfg.GCSBucket, cfg.GCSCredentials), nil
+		return NewGCS(cfg.GCSBucket, cfg.GCSCredentials)
 	default:
 		return nil, fmt.Errorf("storage: unknown driver %q", cfg.Driver)
 	}

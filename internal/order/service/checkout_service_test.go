@@ -146,9 +146,10 @@ func TestPreview_EmptyCart(t *testing.T) {
 		&fakeCartRepo{items: []*cartdomain.CartItemView{}},
 		&fakeAddrRepo{addr: addr},
 		newFakeShipping(30000),
+		nil,
 	)
 
-	resp, err := svc.Preview(context.Background(), userID, addrID)
+	resp, err := svc.Preview(context.Background(), userID, addrID, "")
 	require.NoError(t, err)
 	assert.True(t, resp.CartEmpty)
 	assert.Empty(t, resp.SubOrders)
@@ -167,9 +168,10 @@ func TestPreview_AddressNotOwned_Returns404(t *testing.T) {
 		// FindByID returns ErrNotFound (simulates wrong owner or missing addr)
 		&fakeAddrRepo{findErr: customeraddrrepo.ErrNotFound},
 		newFakeShipping(30000),
+		nil,
 	)
 
-	_, err := svc.Preview(context.Background(), userID, addrID)
+	_, err := svc.Preview(context.Background(), userID, addrID, "")
 	assert.ErrorIs(t, err, domain.ErrAddressNotFound)
 }
 
@@ -218,9 +220,10 @@ func TestPreview_GroupsByBrand_AndComputesTotals(t *testing.T) {
 		&fakeCartRepo{items: items},
 		&fakeAddrRepo{addr: addr},
 		newFakeShipping(shippingPerBrand),
+		nil,
 	)
 
-	resp, err := svc.Preview(context.Background(), userID, addrID)
+	resp, err := svc.Preview(context.Background(), userID, addrID, "")
 	require.NoError(t, err)
 	assert.False(t, resp.CartEmpty)
 	assert.Len(t, resp.SubOrders, 2)
@@ -281,9 +284,10 @@ func TestPreview_BelowMinOrder(t *testing.T) {
 		&fakeCartRepo{items: items},
 		&fakeAddrRepo{addr: addr},
 		newFakeShipping(20000),
+		nil,
 	)
 
-	resp, err := svc.Preview(context.Background(), userID, addrID)
+	resp, err := svc.Preview(context.Background(), userID, addrID, "")
 	require.NoError(t, err)
 	assert.False(t, resp.CartEmpty)
 	assert.False(t, resp.MeetsMinOrder)
@@ -316,9 +320,10 @@ func TestPreview_ReturnsCarrierOptions(t *testing.T) {
 		&fakeCartRepo{items: items},
 		&fakeAddrRepo{addr: addr},
 		sp,
+		nil,
 	)
 
-	resp, err := svc.Preview(context.Background(), userID, addrID)
+	resp, err := svc.Preview(context.Background(), userID, addrID, "")
 	require.NoError(t, err)
 	assert.False(t, resp.AddressIncomplete, "should not be incomplete")
 	require.Len(t, resp.SubOrders, 1)
@@ -348,9 +353,10 @@ func TestPreview_AddressIncompleteWhenNoCodes(t *testing.T) {
 		&fakeCartRepo{items: items},
 		&fakeAddrRepo{addr: addr},
 		stubProvider{}, // provider should NOT be called when address is incomplete
+		nil,
 	)
 
-	resp, err := svc.Preview(context.Background(), userID, addrID)
+	resp, err := svc.Preview(context.Background(), userID, addrID, "")
 	require.NoError(t, err)
 	assert.True(t, resp.AddressIncomplete, "want AddressIncomplete=true")
 	require.Len(t, resp.SubOrders, 1)

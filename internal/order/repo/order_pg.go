@@ -20,17 +20,19 @@ type OrderPG struct{ db DBTX }
 
 func NewOrderPG(db DBTX) *OrderPG { return &OrderPG{db: db} }
 
-const orderCols = `id, user_id, order_no, subtotal_vnd, shipping_total_vnd, grand_total_vnd,
+const orderCols = `id, user_id, order_no, subtotal_vnd, shipping_total_vnd,
+                   discount_vnd, promo_code, grand_total_vnd,
                    payment_method, payment_status, status, shipping_address, notes, cancel_reason,
                    created_at, updated_at, paid_at, cancelled_at`
 
 func scanOrder(row pgx.Row) (*domain.Order, error) {
 	var o domain.Order
 	var addrJSON []byte
-	var notes, cancelReason *string
+	var notes, cancelReason, promoCode *string
 	err := row.Scan(
 		&o.ID, &o.UserID, &o.OrderNo,
-		&o.SubtotalVND, &o.ShippingTotalVND, &o.GrandTotalVND,
+		&o.SubtotalVND, &o.ShippingTotalVND,
+		&o.DiscountVND, &promoCode, &o.GrandTotalVND,
 		&o.PaymentMethod, &o.PaymentStatus, &o.Status,
 		&addrJSON, &notes, &cancelReason,
 		&o.CreatedAt, &o.UpdatedAt, &o.PaidAt, &o.CancelledAt,
@@ -49,6 +51,9 @@ func scanOrder(row pgx.Row) (*domain.Order, error) {
 	}
 	if cancelReason != nil {
 		o.CancelReason = *cancelReason
+	}
+	if promoCode != nil {
+		o.PromoCode = *promoCode
 	}
 	return &o, nil
 }
@@ -72,12 +77,12 @@ func (r *OrderPG) Create(ctx context.Context, db DBTX, o *domain.Order) error {
 
 	row := db.QueryRow(ctx,
 		`INSERT INTO orders
-		   (user_id, order_no, subtotal_vnd, shipping_total_vnd, grand_total_vnd,
-		    payment_method, payment_status, status, shipping_address, notes)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULLIF($10, ''))
+		   (user_id, order_no, subtotal_vnd, shipping_total_vnd, discount_vnd, promo_code,
+		    grand_total_vnd, payment_method, payment_status, status, shipping_address, notes)
+		 VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), $7, $8, $9, $10, $11, NULLIF($12, ''))
 		 RETURNING id, created_at, updated_at`,
-		o.UserID, o.OrderNo, o.SubtotalVND, o.ShippingTotalVND, o.GrandTotalVND,
-		o.PaymentMethod, o.PaymentStatus, o.Status, addrJSON, o.Notes)
+		o.UserID, o.OrderNo, o.SubtotalVND, o.ShippingTotalVND, o.DiscountVND, o.PromoCode,
+		o.GrandTotalVND, o.PaymentMethod, o.PaymentStatus, o.Status, addrJSON, o.Notes)
 	err = row.Scan(&o.ID, &o.CreatedAt, &o.UpdatedAt)
 	if err != nil {
 		if isUniqueViolation(err, "order_no") {

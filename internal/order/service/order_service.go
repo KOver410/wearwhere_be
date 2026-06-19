@@ -21,9 +21,20 @@ import (
 	"github.com/wearwhere/wearwhere_be/internal/payment/payos"
 	paymentrepo "github.com/wearwhere/wearwhere_be/internal/payment/repo"
 	productrepo "github.com/wearwhere/wearwhere_be/internal/product/repo"
+	promorepo "github.com/wearwhere/wearwhere_be/internal/promo/repo"
 	shippingdomain "github.com/wearwhere/wearwhere_be/internal/shipping/domain"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
 )
+
+// PromoPort is the promo dependency used inside the placement transaction.
+// It is satisfied by *promoservice.Service. Nil disables promo handling.
+type PromoPort interface {
+	// ValidateTx locks + validates the code within db (the tx) and returns the
+	// promo id and discount. Empty code → (uuid.Nil, 0, nil).
+	ValidateTx(ctx context.Context, db promorepo.DBTX, code string, userID uuid.UUID, subtotalVND int64) (uuid.UUID, int64, error)
+	// RedeemTx records the redemption within db (the tx). No-op for uuid.Nil.
+	RedeemTx(ctx context.Context, db promorepo.DBTX, promoID, userID, orderID uuid.UUID, discountVND int64) error
+}
 
 // OrderService implements the PlaceOrder atomic transaction flow.
 type OrderService struct {
@@ -37,6 +48,7 @@ type OrderService struct {
 	userRepo     authrepo.UserRepo
 	shipping     provider.ShippingProvider
 	payosClient  payos.Client
+	promo        PromoPort // optional; nil disables promo codes
 	cfg          Config
 }
 
@@ -52,7 +64,7 @@ func NewOrderService(
 	or orderrepo.OrderRepo, sr orderrepo.SubOrderRepo, ir orderrepo.OrderItemRepo,
 	pr paymentrepo.PaymentRepo, vr productrepo.VariantRepo,
 	ar customeraddrrepo.AddressRepo, ur authrepo.UserRepo,
-	ship provider.ShippingProvider, pc payos.Client, cfg Config,
+	ship provider.ShippingProvider, pc payos.Client, promo PromoPort, cfg Config,
 ) *OrderService {
 	if cfg.ReservationTimeout == 0 {
 		cfg.ReservationTimeout = 30 * time.Minute
@@ -61,7 +73,7 @@ func NewOrderService(
 		pool:      pool,
 		orderRepo: or, subOrderRepo: sr, itemRepo: ir, paymentRepo: pr,
 		variantRepo: vr, addrRepo: ar, userRepo: ur,
-		shipping: ship, payosClient: pc, cfg: cfg,
+		shipping: ship, payosClient: pc, promo: promo, cfg: cfg,
 	}
 }
 
@@ -300,6 +312,21 @@ func (s *OrderService) PlaceOrder(
 		return nil, nil, domain.ErrMinOrderValue
 	}
 
+	// Step 8b: apply promo code (re-validated inside the tx; never trust preview).
+	// The promo row is locked FOR UPDATE so a concurrent placement cannot
+	// double-redeem. Discount is order-level: it reduces grand_total only.
+	var promoID uuid.UUID
+	var discount int64
+	if req.PromoCode != "" && s.promo != nil {
+		pid, d, err := s.promo.ValidateTx(ctx, tx, req.PromoCode, userID, subtotalAll)
+		if err != nil {
+			return nil, nil, err
+		}
+		promoID = pid
+		discount = d
+		grandTotal -= discount
+	}
+
 	// Step 9: create order row with retry on order_no conflict (up to 3 attempts).
 	now := time.Now()
 	initialStatus := domain.OrderStatusPendingPayment
@@ -312,12 +339,16 @@ func (s *OrderService) PlaceOrder(
 		UserID:           userID,
 		SubtotalVND:      subtotalAll,
 		ShippingTotalVND: shippingAll,
+		DiscountVND:      discount,
 		GrandTotalVND:    grandTotal,
 		PaymentMethod:    req.PaymentMethod,
 		PaymentStatus:    initialPayStatus,
 		Status:           initialStatus,
 		ShippingAddress:  shipAddr,
 		Notes:            req.Notes,
+	}
+	if promoID != uuid.Nil {
+		order.PromoCode = strings.TrimSpace(req.PromoCode)
 	}
 	for attempt := 0; attempt < 3; attempt++ {
 		order.OrderNo = domain.GenerateOrderNo(now)
@@ -329,6 +360,14 @@ func (s *OrderService) PlaceOrder(
 			return nil, nil, err
 		}
 		if attempt == 2 {
+			return nil, nil, err
+		}
+	}
+
+	// Step 9b: record the promo redemption (order_id now known). The unique
+	// (promo_code_id, user_id) constraint turns a race into ErrPromoAlreadyUsed.
+	if promoID != uuid.Nil {
+		if err := s.promo.RedeemTx(ctx, tx, promoID, userID, order.ID, discount); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -476,6 +515,8 @@ func orderToResp(o *domain.Order) *domain.OrderResp {
 		PaymentStatus:    o.PaymentStatus,
 		SubtotalVND:      o.SubtotalVND,
 		ShippingTotalVND: o.ShippingTotalVND,
+		DiscountVND:      o.DiscountVND,
+		PromoCode:        o.PromoCode,
 		GrandTotalVND:    o.GrandTotalVND,
 		ShippingAddress:  o.ShippingAddress,
 		Notes:            o.Notes,

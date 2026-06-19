@@ -14,6 +14,7 @@ import (
 	"github.com/wearwhere/wearwhere_be/internal/order/domain"
 	orderrepo "github.com/wearwhere/wearwhere_be/internal/order/repo"
 	"github.com/wearwhere/wearwhere_be/internal/order/service"
+	"github.com/wearwhere/wearwhere_be/pkg/httpx"
 )
 
 // Handler holds references to the checkout and order services.
@@ -42,7 +43,7 @@ func (h *Handler) PreviewCheckout(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.checkout.Preview(c.Request.Context(), userID, addressID)
+	resp, err := h.checkout.Preview(c.Request.Context(), userID, addressID, c.Query("promo_code"))
 	if err != nil {
 		if errors.Is(err, domain.ErrAddressNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "address_not_found"})
@@ -87,6 +88,13 @@ func (h *Handler) PlaceOrder(c *gin.Context) {
 		case errors.Is(err, domain.ErrPayosLinkCreate):
 			c.JSON(http.StatusBadGateway, gin.H{"error": "payos_unavailable", "detail": err.Error()})
 		default:
+			// Promo-code errors (and any other AppError) carry their own
+			// HTTP status + stable code (PROMO_EXPIRED, PROMO_ALREADY_USED, ...).
+			var appErr *httpx.AppError
+			if errors.As(err, &appErr) {
+				c.JSON(appErr.Status, gin.H{"error": appErr.Code, "message": appErr.Message})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
 		return

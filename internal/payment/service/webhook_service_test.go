@@ -76,6 +76,7 @@ func placePayosOrder(t *testing.T) (orderCode int64, variantID interface{}) {
 		authrepo.NewUserPG(pool),
 		provider.NewFlatRateProvider(brandrepo.NewBrandPG(pool)),
 		payos.NewMockClient(""),
+		nil, // promo not exercised in webhook tests
 		orderservice.Config{
 			ReservationTimeout: 30 * time.Minute,
 			PayosReturnURL:     "http://ret",
@@ -127,6 +128,7 @@ func TestWebhook_Success_CommitsStockAndOrder(t *testing.T) {
 		authrepo.NewUserPG(pool),
 		provider.NewFlatRateProvider(brandrepo.NewBrandPG(pool)),
 		payos.NewMockClient(""),
+		nil, // promo not exercised in webhook tests
 		orderservice.Config{
 			ReservationTimeout: 30 * time.Minute,
 			PayosReturnURL:     "http://ret",
@@ -212,6 +214,7 @@ func TestWebhook_Idempotent_SecondCallNoOp(t *testing.T) {
 		authrepo.NewUserPG(pool),
 		provider.NewFlatRateProvider(brandrepo.NewBrandPG(pool)),
 		payos.NewMockClient(""),
+		nil, // promo not exercised in webhook tests
 		orderservice.Config{
 			ReservationTimeout: 30 * time.Minute,
 			PayosReturnURL:     "http://ret",

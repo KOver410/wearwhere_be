@@ -20,6 +20,8 @@ import (
 	"github.com/wearwhere/wearwhere_be/internal/payment/payos"
 	paymentrepo "github.com/wearwhere/wearwhere_be/internal/payment/repo"
 	productrepo "github.com/wearwhere/wearwhere_be/internal/product/repo"
+	promorepo "github.com/wearwhere/wearwhere_be/internal/promo/repo"
+	promoservice "github.com/wearwhere/wearwhere_be/internal/promo/service"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/goship"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/weight"
@@ -37,6 +39,11 @@ type testSetup struct {
 	Pool      *pgxpool.Pool
 }
 
+// buildPromoSvc constructs a promo service backed by pool for in-tx redemption.
+func buildPromoSvc(pool *pgxpool.Pool) *promoservice.Service {
+	return promoservice.New(promorepo.NewPromoPG(pool))
+}
+
 // buildSvc constructs an OrderService backed by pool, using mock PayOS.
 func buildSvc(pool *pgxpool.Pool) *service.OrderService {
 	return service.NewOrderService(
@@ -50,6 +57,7 @@ func buildSvc(pool *pgxpool.Pool) *service.OrderService {
 		authrepo.NewUserPG(pool),
 		provider.NewFlatRateProvider(brandrepo.NewBrandPG(pool)),
 		payos.NewMockClient(""),
+		buildPromoSvc(pool),
 		service.Config{
 			ReservationTimeout: 30 * time.Minute,
 			PayosReturnURL:     "http://ret",
@@ -259,6 +267,7 @@ func setupGoshipOrder(t *testing.T, qty int, price float64) testSetup {
 		authrepo.NewUserPG(pool),
 		goshipProv,
 		payos.NewMockClient(""),
+		buildPromoSvc(pool),
 		service.Config{
 			ReservationTimeout: 30 * time.Minute,
 			PayosReturnURL:     "http://ret",

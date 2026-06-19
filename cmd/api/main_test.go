@@ -48,6 +48,8 @@ import (
 	producthandler "github.com/wearwhere/wearwhere_be/internal/product/handler"
 	productrepo "github.com/wearwhere/wearwhere_be/internal/product/repo"
 	productservice "github.com/wearwhere/wearwhere_be/internal/product/service"
+	promorepo "github.com/wearwhere/wearwhere_be/internal/promo/repo"
+	promoservice "github.com/wearwhere/wearwhere_be/internal/promo/service"
 	jwtsvc "github.com/wearwhere/wearwhere_be/internal/shared/jwt"
 	"github.com/wearwhere/wearwhere_be/internal/shared/storage"
 	authvalidator "github.com/wearwhere/wearwhere_be/internal/shared/validator"
@@ -174,13 +176,14 @@ func buildTestServer(t *testing.T, pool *pgxpool.Pool, storageBackend storage.St
 	shippingProvider := provider.NewFlatRateProvider(brandRepo)
 	mockPayosClient := payos.NewMockClient("") // baseURL filled in after server starts
 
-	checkoutSvc := orderservice.NewCheckoutService(cartRepo, customeraddrRepo, shippingProvider)
+	promoSvc := promoservice.New(promorepo.NewPromoPG(pool))
+	checkoutSvc := orderservice.NewCheckoutService(cartRepo, customeraddrRepo, shippingProvider, promoSvc)
 	orderSvc := orderservice.NewOrderService(
 		pool,
 		orderRepo, subOrderRepo, orderItemRepo,
 		paymentRepo, variantRepo,
 		customeraddrRepo, userRepo,
-		shippingProvider, mockPayosClient,
+		shippingProvider, mockPayosClient, promoSvc,
 		orderservice.Config{
 			ReservationTimeout: 30 * time.Minute,
 			PayosReturnURL:     "http://localhost/return",

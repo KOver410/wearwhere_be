@@ -49,7 +49,11 @@ type CheckoutPreviewResp struct {
 	SubOrders        []CheckoutPreviewSubOrder `json:"sub_orders"`
 	SubtotalVND      int64                     `json:"subtotal_vnd"`
 	ShippingTotalVND int64                     `json:"shipping_total_vnd"`
+	DiscountVND      int64                     `json:"discount_vnd"`
 	GrandTotalVND    int64                     `json:"grand_total_vnd"`
+	PromoCode         string                    `json:"promo_code,omitempty"`
+	PromoApplied      bool                      `json:"promo_applied"`
+	PromoError        string                    `json:"promo_error,omitempty"`
 	MinOrderValueVND  int64                     `json:"min_order_value_vnd"`
 	MeetsMinOrder     bool                      `json:"meets_min_order"`
 	Warnings          []string                  `json:"warnings"`
@@ -62,9 +66,10 @@ type ShippingSelection struct {
 }
 
 type PlaceOrderReq struct {
-	AddressID          uuid.UUID          `json:"address_id" binding:"required"`
-	PaymentMethod      PaymentMethod      `json:"payment_method" binding:"required"`
-	Notes              string             `json:"notes" binding:"max=500"`
+	AddressID          uuid.UUID           `json:"address_id" binding:"required"`
+	PaymentMethod      PaymentMethod       `json:"payment_method" binding:"required"`
+	Notes              string              `json:"notes" binding:"max=500"`
+	PromoCode          string              `json:"promo_code" binding:"max=40"`
 	ShippingSelections []ShippingSelection `json:"shipping_selections" binding:"required,dive"`
 }
 
@@ -117,6 +122,8 @@ type OrderResp struct {
 	PaymentStatus    PaymentStatus   `json:"payment_status"`
 	SubtotalVND      int64           `json:"subtotal_vnd"`
 	ShippingTotalVND int64           `json:"shipping_total_vnd"`
+	DiscountVND      int64           `json:"discount_vnd"`
+	PromoCode        string          `json:"promo_code,omitempty"`
 	GrandTotalVND    int64           `json:"grand_total_vnd"`
 	ShippingAddress  ShippingAddress `json:"shipping_address"`
 	Notes            string          `json:"notes"`

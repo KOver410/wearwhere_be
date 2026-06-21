@@ -49,6 +49,7 @@ func buildJobSvc(pool *pgxpool.Pool) *service.OrderService {
 		authrepo.NewUserPG(pool),
 		provider.NewFlatRateProvider(brandrepo.NewBrandPG(pool)),
 		payos.NewMockClient(""),
+		nil, // promo not exercised in reservation-cleanup tests
 		service.Config{
 			ReservationTimeout: 30 * time.Minute,
 			PayosReturnURL:     "http://ret",

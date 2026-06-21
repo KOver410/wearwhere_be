@@ -47,6 +47,9 @@ import (
 	producthandler "github.com/wearwhere/wearwhere_be/internal/product/handler"
 	productrepo "github.com/wearwhere/wearwhere_be/internal/product/repo"
 	productservice "github.com/wearwhere/wearwhere_be/internal/product/service"
+	promohandler "github.com/wearwhere/wearwhere_be/internal/promo/handler"
+	promorepo "github.com/wearwhere/wearwhere_be/internal/promo/repo"
+	promoservice "github.com/wearwhere/wearwhere_be/internal/promo/service"
 	"github.com/wearwhere/wearwhere_be/internal/shared/storage"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/goship"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/location"
@@ -258,13 +261,15 @@ func main() {
 	}
 
 	// ── Sprint 3 services ──
-	checkoutSvc := orderservice.NewCheckoutService(cartRepo, customerAddrRepo, shippingProvider)
+	promoRepo := promorepo.NewPromoPG(pgPool)
+	promoSvc := promoservice.New(promoRepo)
+	checkoutSvc := orderservice.NewCheckoutService(cartRepo, customerAddrRepo, shippingProvider, promoSvc)
 	orderSvc := orderservice.NewOrderService(
 		pgPool,
 		orderRepoSvc, subOrderRepo, orderItemRepo,
 		paymentRepo, variantRepo,
 		customerAddrRepo, userRepo,
-		shippingProvider, payosClient,
+		shippingProvider, payosClient, promoSvc,
 		orderservice.Config{
 			ReservationTimeout: time.Duration(cfg.Reservation.TimeoutMinutes) * time.Minute,
 			PayosReturnURL:     cfg.Payos.ReturnURL,
@@ -412,6 +417,12 @@ func main() {
 	ootdhandler.MountOOTDAuthed(reviewsAuthed, ootdHandler)
 	followhandler.MountFollowAuthed(reviewsAuthed, followHandler)
 	blockhandler.MountBlockAuthed(reviewsAuthed, blockHandler)
+
+	adminGroup := v1.Group("/admin",
+		middleware.RequireAuth(jwtIssuer),
+		middleware.RequireRole(authdomain.RoleAdmin),
+	)
+	promohandler.MountAdmin(adminGroup, promohandler.New(promoSvc))
 
 	location.RegisterRoutes(v1, location.NewHandler(locSvc))
 	paymenthandler.MountPublic(v1, paymentH)

@@ -25,6 +25,8 @@ type Order struct {
 	OrderNo          string
 	SubtotalVND      int64
 	ShippingTotalVND int64
+	DiscountVND      int64
+	PromoCode        string // empty if no promo applied
 	GrandTotalVND    int64
 	PaymentMethod    PaymentMethod
 	PaymentStatus    PaymentStatus

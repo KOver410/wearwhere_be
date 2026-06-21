@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -10,8 +11,16 @@ import (
 	cartrepo "github.com/wearwhere/wearwhere_be/internal/cart/repo"
 	customeraddrrepo "github.com/wearwhere/wearwhere_be/internal/customeraddr/repo"
 	"github.com/wearwhere/wearwhere_be/internal/order/domain"
+	promodomain "github.com/wearwhere/wearwhere_be/internal/promo/domain"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
+	"github.com/wearwhere/wearwhere_be/pkg/httpx"
 )
+
+// PromoValidator is the read-only promo dependency used by the preview.
+// Satisfied by *promoservice.Service. Nil disables promo handling.
+type PromoValidator interface {
+	Validate(ctx context.Context, code string, userID uuid.UUID, subtotalVND int64) (*promodomain.ValidateResult, error)
+}
 
 // CheckoutService is a read-only service that returns a preview of what the
 // order would look like if placed now. No DB writes, no reservation.
@@ -19,14 +28,16 @@ type CheckoutService struct {
 	cartRepo cartrepo.CartRepo
 	addrRepo customeraddrrepo.AddressRepo
 	shipping provider.ShippingProvider
+	promo    PromoValidator // optional; nil disables promo codes
 }
 
 func NewCheckoutService(
 	c cartrepo.CartRepo,
 	a customeraddrrepo.AddressRepo,
 	s provider.ShippingProvider,
+	promo PromoValidator,
 ) *CheckoutService {
-	return &CheckoutService{cartRepo: c, addrRepo: a, shipping: s}
+	return &CheckoutService{cartRepo: c, addrRepo: a, shipping: s, promo: promo}
 }
 
 // Preview returns the would-be order: items grouped by brand, shipping fee per
@@ -34,6 +45,7 @@ func NewCheckoutService(
 func (s *CheckoutService) Preview(
 	ctx context.Context,
 	userID, addressID uuid.UUID,
+	promoCode string,
 ) (*domain.CheckoutPreviewResp, error) {
 	// FindByID is already scoped to userID — it returns ErrNotFound if addr
 	// belongs to a different user.
@@ -171,18 +183,51 @@ func (s *CheckoutService) Preview(
 	}
 
 	grand := subtotalAll + shippingAll
+
+	// Apply promo code (read-only). A bad code surfaces as promo_error rather
+	// than failing the whole preview, so the FE can still show the cart.
+	var discount int64
+	var promoApplied bool
+	var promoErr, appliedCode string
+	if promoCode != "" && s.promo != nil {
+		res, err := s.promo.Validate(ctx, promoCode, userID, subtotalAll)
+		switch {
+		case err != nil:
+			promoErr = promoErrCode(err)
+		case res != nil:
+			discount = res.DiscountVND
+			grand -= discount
+			promoApplied = true
+			appliedCode = res.Code
+		}
+	}
+
 	return &domain.CheckoutPreviewResp{
 		CartEmpty:         false,
 		Address:           &shipAddr,
 		SubOrders:         subOrders,
 		SubtotalVND:       subtotalAll,
 		ShippingTotalVND:  shippingAll,
+		DiscountVND:       discount,
 		GrandTotalVND:     grand,
+		PromoCode:         appliedCode,
+		PromoApplied:      promoApplied,
+		PromoError:        promoErr,
 		MinOrderValueVND:  domain.MinOrderValueVND,
 		MeetsMinOrder:     subtotalAll >= domain.MinOrderValueVND,
 		Warnings:          warnings,
 		AddressIncomplete: addrIncomplete,
 	}, nil
+}
+
+// promoErrCode extracts the stable error code from a promo AppError for the
+// preview's promo_error field (falls back to the raw message).
+func promoErrCode(err error) string {
+	var ae *httpx.AppError
+	if errors.As(err, &ae) {
+		return ae.Code
+	}
+	return err.Error()
 }
 
 // variantLabel builds a human-readable label from colour/size, falling back to SKU.

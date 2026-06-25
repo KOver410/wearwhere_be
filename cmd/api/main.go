@@ -25,7 +25,13 @@ import (
 	"github.com/wearwhere/wearwhere_be/internal/shared/sms"
 	authvalidator "github.com/wearwhere/wearwhere_be/internal/shared/validator"
 
+	adminuserhandler "github.com/wearwhere/wearwhere_be/internal/admin/user/handler"
+	adminuserrepo "github.com/wearwhere/wearwhere_be/internal/admin/user/repo"
+	adminuserservice "github.com/wearwhere/wearwhere_be/internal/admin/user/service"
 	authdomain "github.com/wearwhere/wearwhere_be/internal/auth/domain"
+	blockhandler "github.com/wearwhere/wearwhere_be/internal/block/handler"
+	blockrepo "github.com/wearwhere/wearwhere_be/internal/block/repo"
+	blockservice "github.com/wearwhere/wearwhere_be/internal/block/service"
 	brandhandler "github.com/wearwhere/wearwhere_be/internal/brand/handler"
 	brandmw "github.com/wearwhere/wearwhere_be/internal/brand/middleware"
 	brandrepo "github.com/wearwhere/wearwhere_be/internal/brand/repo"
@@ -36,7 +42,13 @@ import (
 	customeraddrhandler "github.com/wearwhere/wearwhere_be/internal/customeraddr/handler"
 	customeraddrrepo "github.com/wearwhere/wearwhere_be/internal/customeraddr/repo"
 	customeraddrservice "github.com/wearwhere/wearwhere_be/internal/customeraddr/service"
+	followhandler "github.com/wearwhere/wearwhere_be/internal/follow/handler"
+	followrepo "github.com/wearwhere/wearwhere_be/internal/follow/repo"
+	followservice "github.com/wearwhere/wearwhere_be/internal/follow/service"
 	jobsmod "github.com/wearwhere/wearwhere_be/internal/jobs"
+	ootdhandler "github.com/wearwhere/wearwhere_be/internal/ootd/handler"
+	ootdrepo "github.com/wearwhere/wearwhere_be/internal/ootd/repo"
+	ootdservice "github.com/wearwhere/wearwhere_be/internal/ootd/service"
 	orderhandler "github.com/wearwhere/wearwhere_be/internal/order/handler"
 	orderrepo "github.com/wearwhere/wearwhere_be/internal/order/repo"
 	orderservice "github.com/wearwhere/wearwhere_be/internal/order/service"
@@ -50,29 +62,20 @@ import (
 	promohandler "github.com/wearwhere/wearwhere_be/internal/promo/handler"
 	promorepo "github.com/wearwhere/wearwhere_be/internal/promo/repo"
 	promoservice "github.com/wearwhere/wearwhere_be/internal/promo/service"
+	reviewhandler "github.com/wearwhere/wearwhere_be/internal/review/handler"
+	reviewrepo "github.com/wearwhere/wearwhere_be/internal/review/repo"
+	reviewservice "github.com/wearwhere/wearwhere_be/internal/review/service"
 	"github.com/wearwhere/wearwhere_be/internal/shared/storage"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/goship"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/location"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/provider"
 	"github.com/wearwhere/wearwhere_be/internal/shipping/weight"
-	blockhandler "github.com/wearwhere/wearwhere_be/internal/block/handler"
-	blockrepo "github.com/wearwhere/wearwhere_be/internal/block/repo"
-	blockservice "github.com/wearwhere/wearwhere_be/internal/block/service"
-	followhandler "github.com/wearwhere/wearwhere_be/internal/follow/handler"
-	followrepo "github.com/wearwhere/wearwhere_be/internal/follow/repo"
-	followservice "github.com/wearwhere/wearwhere_be/internal/follow/service"
-	ootdhandler "github.com/wearwhere/wearwhere_be/internal/ootd/handler"
-	ootdrepo "github.com/wearwhere/wearwhere_be/internal/ootd/repo"
-	ootdservice "github.com/wearwhere/wearwhere_be/internal/ootd/service"
-	reviewhandler "github.com/wearwhere/wearwhere_be/internal/review/handler"
-	reviewrepo "github.com/wearwhere/wearwhere_be/internal/review/repo"
-	reviewservice "github.com/wearwhere/wearwhere_be/internal/review/service"
-	wishlisthandler "github.com/wearwhere/wearwhere_be/internal/wishlist/handler"
-	wishlistrepo "github.com/wearwhere/wearwhere_be/internal/wishlist/repo"
-	wishlistservice "github.com/wearwhere/wearwhere_be/internal/wishlist/service"
 	styleprofilehandler "github.com/wearwhere/wearwhere_be/internal/styleprofile/handler"
 	styleprofilerepo "github.com/wearwhere/wearwhere_be/internal/styleprofile/repo"
 	styleprofileservice "github.com/wearwhere/wearwhere_be/internal/styleprofile/service"
+	wishlisthandler "github.com/wearwhere/wearwhere_be/internal/wishlist/handler"
+	wishlistrepo "github.com/wearwhere/wearwhere_be/internal/wishlist/repo"
+	wishlistservice "github.com/wearwhere/wearwhere_be/internal/wishlist/service"
 
 	recommendationhandler "github.com/wearwhere/wearwhere_be/internal/recommendation/handler"
 	recommendationrepo "github.com/wearwhere/wearwhere_be/internal/recommendation/repo"
@@ -423,6 +426,8 @@ func main() {
 		middleware.RequireRole(authdomain.RoleAdmin),
 	)
 	promohandler.MountAdmin(adminGroup, promohandler.New(promoSvc))
+	adminUserSvc := adminuserservice.New(adminuserrepo.NewUserReadPG(pgPool))
+	adminuserhandler.MountAdmin(adminGroup, adminuserhandler.New(adminUserSvc))
 
 	location.RegisterRoutes(v1, location.NewHandler(locSvc))
 	paymenthandler.MountPublic(v1, paymentH)

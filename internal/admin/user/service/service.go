@@ -30,7 +30,7 @@ func (s *Service) ListUsers(ctx context.Context, raw domain.ListUsersFilter) (do
 		PageSize: f.PageSize,
 		Total:    total,
 	}
-	if f.PageSize > 0 {
+	if total > 0 {
 		resp.TotalPages = (total + f.PageSize - 1) / f.PageSize
 	}
 	return resp, nil

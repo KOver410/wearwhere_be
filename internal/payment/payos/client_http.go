@@ -112,6 +112,10 @@ func (c *HTTPClient) VerifyWebhookSignature(p WebhookPayload) error {
 	return VerifyWebhook(c.checksumKey, p)
 }
 
+func (c *HTTPClient) VerifyWebhookSignatureRaw(rawData []byte, signature string) error {
+	return VerifyWebhookRaw(c.checksumKey, rawData, signature)
+}
+
 func (c *HTTPClient) GetPayment(ctx context.Context, paymentLinkID string) (*PaymentInfo, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET",
 		c.baseURL+"/v2/payment-requests/"+paymentLinkID, nil)

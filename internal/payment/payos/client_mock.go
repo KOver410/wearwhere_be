@@ -34,6 +34,8 @@ func (m *MockClient) CreateLink(_ context.Context, r CreateLinkReq) (*CreateLink
 // Mock accepts any signature — testing convenience only.
 func (m *MockClient) VerifyWebhookSignature(_ WebhookPayload) error { return nil }
 
+func (m *MockClient) VerifyWebhookSignatureRaw(_ []byte, _ string) error { return nil }
+
 func (m *MockClient) GetPayment(_ context.Context, paymentLinkID string) (*PaymentInfo, error) {
 	return &PaymentInfo{Status: "PENDING"}, nil
 }

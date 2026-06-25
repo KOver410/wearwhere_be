@@ -73,6 +73,9 @@ type PaymentInfo struct {
 type Client interface {
 	CreateLink(ctx context.Context, r CreateLinkReq) (*CreateLinkResp, error)
 	VerifyWebhookSignature(p WebhookPayload) error
+	// VerifyWebhookSignatureRaw verifies the signature against the raw `data`
+	// JSON object as received (PayOS signs all fields, not just the modelled ones).
+	VerifyWebhookSignatureRaw(rawData []byte, signature string) error
 	GetPayment(ctx context.Context, paymentLinkID string) (*PaymentInfo, error)
 	CancelLink(ctx context.Context, paymentLinkID, reason string) error
 }

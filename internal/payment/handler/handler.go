@@ -2,7 +2,9 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -36,16 +38,45 @@ func New(w *service.WebhookService, pc payos.Client, mockMode bool, returnURL, c
 // PayosWebhook receives a payment confirmation callback from PayOS.
 // POST /payments/payos/webhook
 func (h *Handler) PayosWebhook(c *gin.Context) {
-	var p payos.WebhookPayload
-	if err := c.ShouldBindJSON(&p); err != nil {
+	raw, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
+		return
+	}
+
+	// Keep `data` as raw bytes: PayOS signs the data object exactly as sent
+	// (every field), so verification must run over the raw bytes, not a typed
+	// struct that drops unmodelled fields.
+	var envelope struct {
+		Code      string          `json:"code"`
+		Desc      string          `json:"desc"`
+		Success   bool            `json:"success"`
+		Data      json.RawMessage `json:"data"`
+		Signature string          `json:"signature"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
 		return
 	}
 
 	// Verify HMAC signature unless running in mock mode.
 	if !h.mockMode {
-		if err := h.payos.VerifyWebhookSignature(p); err != nil {
+		if err := h.payos.VerifyWebhookSignatureRaw(envelope.Data, envelope.Signature); err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_signature"})
+			return
+		}
+	}
+
+	// Decode the modelled fields for business logic.
+	p := payos.WebhookPayload{
+		Code:      envelope.Code,
+		Desc:      envelope.Desc,
+		Success:   envelope.Success,
+		Signature: envelope.Signature,
+	}
+	if len(envelope.Data) > 0 {
+		if err := json.Unmarshal(envelope.Data, &p.Data); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_payload"})
 			return
 		}
 	}

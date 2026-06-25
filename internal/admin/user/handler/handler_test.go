@@ -3,6 +3,7 @@ package handler_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -21,11 +22,12 @@ type fakeReadRepo struct {
 	gotFilter domain.ListUsersFilter
 	rows      []domain.AdminUserRow
 	total     int
+	err       error
 }
 
 func (f *fakeReadRepo) ListUsers(_ context.Context, flt domain.ListUsersFilter) ([]domain.AdminUserRow, int, error) {
 	f.gotFilter = flt
-	return f.rows, f.total, nil
+	return f.rows, f.total, f.err
 }
 
 func setup(fake *fakeReadRepo) *gin.Engine {
@@ -83,4 +85,15 @@ func TestList_EmptyDefaults(t *testing.T) {
 	assert.Equal(t, domain.OrderDesc, fake.gotFilter.Order)
 	assert.Equal(t, 1, fake.gotFilter.Page)
 	assert.Equal(t, 20, fake.gotFilter.PageSize)
+}
+
+func TestList_RepoError_Returns500(t *testing.T) {
+	fake := &fakeReadRepo{err: errors.New("db down")}
+	r := setup(fake)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/admin/users", nil)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
 }

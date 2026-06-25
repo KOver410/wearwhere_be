@@ -39,9 +39,12 @@ func (r *UserReadPG) ListUsers(ctx context.Context, f domain.ListUsersFilter) ([
 	        AND ($1 = '' OR email ILIKE '%'||$1||'%'
 	                     OR name  ILIKE '%'||$1||'%'
 	                     OR phone ILIKE '%'||$1||'%')
-	      ORDER BY ` + orderBy + `
+	      ORDER BY ` + orderBy + ` -- orderBy is always a hardcoded literal from orderClauses, never user input
 	      LIMIT $2 OFFSET $3`
 
+	if f.Page < 1 { // defensive: f is expected pre-normalized
+		f.Page = 1
+	}
 	offset := (f.Page - 1) * f.PageSize
 	rows, err := r.db.Query(ctx, q, f.Q, f.PageSize, offset)
 	if err != nil {
